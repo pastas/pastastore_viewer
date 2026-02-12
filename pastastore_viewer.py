@@ -49,6 +49,7 @@ class PastastoreViewer:
         self.dock_widget = None
         self.plot_dock = None
         self.action = None
+        self.is_updating_selection = False
 
     def tr(self, message):
         return QCoreApplication.translate('PastastoreViewer', message)
@@ -103,6 +104,7 @@ class PastastoreViewer:
             self.dock_widget.load_requested.connect(self.load_pastastore)
             self.dock_widget.item_selected.connect(self.on_item_selected)
             self.dock_widget.settings_requested.connect(self.open_settings)
+            self.dock_widget.tab_changed.connect(self.on_tab_changed)
             
             self.dock_widget.restore_state_from_project()
         
@@ -238,7 +240,7 @@ class PastastoreViewer:
             self._add_layer(self.store.oseries, "oseries", group)
         if hasattr(self.store, 'stresses') and len(self.store.stresses.index) > 0:
             self._add_layer(self.store.stresses, "stresses", group)
-        if hasattr(self.store, 'models') and len(self.store.models) > 0:
+        if hasattr(self.store, 'model_names') and len(self.store.model_names) > 0:
             model_oseries = [
                 self.store.get_models(m, return_dict=True)["oseries"]["name"]
                 for m in self.store.model_names
@@ -271,6 +273,12 @@ class PastastoreViewer:
                 if potential_x and potential_y:
                      x_col, y_col = potential_x[0], potential_y[0]
                 else: 
+                     self.iface.messageBar().pushMessage(
+                         "Missing Coordinates", 
+                         f"Could not find columns '{x_col}' and '{y_col}' in {layer_name}. "
+                         "Please check your settings or the data.", 
+                         level=2
+                     )
                      return
 
             crs = QgsCoordinateReferenceSystem(f"EPSG:{crs_epsg}")
@@ -312,23 +320,31 @@ class PastastoreViewer:
     def on_item_selected(self, category, names):
         self.plot_item(category, names)
         
+        if self.is_updating_selection:
+            return
+            
         layers = QgsProject.instance().mapLayersByName(category)
         if not layers: return
         layer = layers[0]
         
-        layer.removeSelection()
-        if not names: 
-            self.iface.mapCanvas().refresh()
-            return
+        self.is_updating_selection = True
+        try:
+            layer.removeSelection()
+            if not names: 
+                self.iface.mapCanvas().refresh()
+                return
+                
+            names_str = ",".join([f"'{n}'" for n in names])
+            request = QgsFeatureRequest().setFilterExpression(f"\"name\" IN ({names_str})")
             
-        names_str = ",".join([f"'{n}'" for n in names])
-        request = QgsFeatureRequest().setFilterExpression(f"\"name\" IN ({names_str})")
-        
-        ids = []
-        for feat in layer.getFeatures(request):
-            ids.append(feat.id())
-            
-        layer.select(ids)
+            ids = []
+            for feat in layer.getFeatures(request):
+                ids.append(feat.id())
+                
+            layer.select(ids)
+        finally:
+            self.is_updating_selection = False
+
         auto_zoom = self.dock_widget.auto_zoom if self.dock_widget else True
         if ids and auto_zoom:
             self.iface.mapCanvas().setExtent(layer.boundingBoxOfSelected())
@@ -337,16 +353,31 @@ class PastastoreViewer:
         if self.dock_widget:
             self.dock_widget.save_state_to_project()
 
+    def on_tab_changed(self, active_category):
+        categories = ["oseries", "stresses", "models"]
+        for cat in categories:
+            if cat != active_category:
+                layers = QgsProject.instance().mapLayersByName(cat)
+                for layer in layers:
+                    if layer.customProperty("pastastore_type"):
+                        self.is_updating_selection = True
+                        try:
+                            layer.removeSelection()
+                        finally:
+                            self.is_updating_selection = False
+        self.iface.mapCanvas().refresh()
+
     def on_map_selection_changed(self):
+        if self.is_updating_selection:
+            return
         layer = self.iface.mapCanvas().currentLayer()
         if not layer or not self.store: return
         pst_type = layer.customProperty("pastastore_type")
         if not pst_type: return
         selected_feats = layer.selectedFeatures()
-        if not selected_feats: return
         names = [f["name"] for f in selected_feats]
         if self.dock_widget:
-            self.dock_widget.select_item_in_list(pst_type, names[0])
+            self.dock_widget.select_items_in_list(pst_type, names)
         self.plot_item(pst_type, names)
 
     def plot_item(self, category, names):

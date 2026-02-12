@@ -31,7 +31,7 @@ class PastastorePlotDock(QDockWidget):
         zoom_layout = QHBoxLayout()
         self.btn_zoom_in = QPushButton("+")
         self.btn_pan = QPushButton("Pan")
-        self.btn_show_all = QPushButton("Fit")
+        self.btn_show_all = QPushButton("All")
         for btn in [self.btn_zoom_in, self.btn_pan, self.btn_show_all]:
             btn.setMaximumWidth(60)
             zoom_layout.addWidget(btn)

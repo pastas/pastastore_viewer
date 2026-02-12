@@ -16,6 +16,7 @@ class PastastoreMainDock(QDockWidget):
     load_requested = pyqtSignal(str) # path (optional)
     item_selected = pyqtSignal(str, list) # category, names (list)
     settings_requested = pyqtSignal()
+    tab_changed = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super(PastastoreMainDock, self).__init__("Pastastore Viewer", parent)
@@ -29,6 +30,7 @@ class PastastoreMainDock(QDockWidget):
         self.crs_epsg = '28992'
         self.auto_zoom = False
         self.store_path = None
+        self.is_updating_selection = False
 
         # Container widget
         self.container = QWidget()
@@ -75,6 +77,8 @@ class PastastoreMainDock(QDockWidget):
         self.table_stresses.itemSelectionChanged.connect(lambda: self._on_selection_changed("stresses"))
         self.list_models.itemClicked.connect(lambda item: self.item_selected.emit("models", [item.text()]))
         
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        
         self.layout.addWidget(self.tabs)
         self.setWidget(self.container)
 
@@ -114,11 +118,11 @@ class PastastoreMainDock(QDockWidget):
                     self.table_stresses.setItem(i, j+1, QTableWidgetItem(str(val)))
             
         # Models List (Keep as list as requested)
-        if hasattr(store, 'models') and len(store.models) > 0:
-            self.list_models.addItems(store.models)
+        if hasattr(store, 'model_names') and len(store.model_names) > 0:
+            self.list_models.addItems(store.model_names)
 
-    def select_item_in_list(self, category, name):
-        """Programmatically select an item in the corresponding list."""
+    def select_items_in_list(self, category, names):
+        """Programmatically select items in the corresponding list."""
         list_widget = None
         if category == "oseries":
             list_widget = self.table_oseries
@@ -131,16 +135,39 @@ class PastastoreMainDock(QDockWidget):
             self.tabs.setCurrentIndex(2)
             
         if list_widget:
-            if isinstance(list_widget, QTableWidget):
-                items = list_widget.findItems(name, Qt.MatchExactly)
-                if items:
-                    list_widget.setCurrentItem(items[0])
-            else:
-                items = list_widget.findItems(name, Qt.MatchExactly)
-                if items:
-                    list_widget.setCurrentItem(items[0])
+            self.is_updating_selection = True
+            try:
+                list_widget.clearSelection()
+                if not names:
+                    return
+                    
+                if isinstance(list_widget, QTableWidget):
+                    from qgis.PyQt.QtCore import QItemSelectionModel
+                    selection_model = list_widget.selectionModel()
+                    for row in range(list_widget.rowCount()):
+                        item = list_widget.item(row, 0)
+                        if item and item.text() in names:
+                            index = list_widget.model().index(row, 0)
+                            selection_model.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+                    
+                    selected = list_widget.selectedItems()
+                    if selected:
+                        list_widget.scrollToItem(selected[0])
+                else:
+                    for name in names:
+                        items = list_widget.findItems(name, Qt.MatchExactly)
+                        if items:
+                            for item in items:
+                                item.setSelected(True)
+                    item = list_widget.currentItem()
+                    if item:
+                        list_widget.scrollToItem(item)
+            finally:
+                self.is_updating_selection = False
 
     def _on_selection_changed(self, category):
+        if self.is_updating_selection:
+            return
         if category == "oseries":
             items = self.table_oseries.selectedItems()
             names = sorted(list(set([self.table_oseries.item(item.row(), 0).text() for item in items])))
@@ -151,6 +178,14 @@ class PastastoreMainDock(QDockWidget):
             return
             
         self.item_selected.emit(category, names)
+        
+    def _on_tab_changed(self, index):
+        categories = ["oseries", "stresses", "models"]
+        if index < len(categories):
+            category = categories[index]
+            self.tab_changed.emit(category)
+            # Also trigger selection update for the new tab
+            self._on_selection_changed(category)
 
     def set_filename(self, filename):
         if filename:
