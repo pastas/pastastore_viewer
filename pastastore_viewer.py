@@ -307,7 +307,17 @@ class PastastoreViewer:
             
             symbol = layer.renderer().symbol()
             colors = {"oseries": Qt.blue, "stresses": Qt.red, "models": Qt.green}
-            symbol.setColor(colors.get(layer_name, Qt.black))
+            color = colors.get(layer_name, Qt.black)
+            symbol.setColor(color)
+            
+            if layer_name == "models":
+                from qgis.PyQt.QtGui import QColor
+                symbol.setSize(4.0)
+                sl = symbol.symbolLayer(0)
+                if sl:
+                    sl.setFillColor(QColor(0, 0, 0, 0)) # Hollow
+                    sl.setStrokeColor(color)
+                    sl.setStrokeWidth(0.6)
                 
             QgsProject.instance().addMapLayer(layer, False)
             group.addLayer(layer)
@@ -356,15 +366,24 @@ class PastastoreViewer:
     def on_tab_changed(self, active_category):
         categories = ["oseries", "stresses", "models"]
         for cat in categories:
-            if cat != active_category:
-                layers = QgsProject.instance().mapLayersByName(cat)
-                for layer in layers:
-                    if layer.customProperty("pastastore_type"):
-                        self.is_updating_selection = True
-                        try:
-                            layer.removeSelection()
-                        finally:
-                            self.is_updating_selection = False
+            layers = QgsProject.instance().mapLayersByName(cat)
+            pastastore_layer = None
+            for layer in layers:
+                if layer.customProperty("pastastore_type") == cat:
+                    pastastore_layer = layer
+                    break
+            
+            if not pastastore_layer:
+                continue
+
+            if cat == active_category:
+                self.iface.setActiveLayer(pastastore_layer)
+            else:
+                self.is_updating_selection = True
+                try:
+                    pastastore_layer.removeSelection()
+                finally:
+                    self.is_updating_selection = False
         self.iface.mapCanvas().refresh()
 
     def on_map_selection_changed(self):

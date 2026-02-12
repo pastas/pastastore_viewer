@@ -68,6 +68,7 @@ class PastastoreMainDock(QDockWidget):
             table.setSelectionMode(QTableWidget.ExtendedSelection)
             table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
             table.setEditTriggers(QTableWidget.NoEditTriggers)
+            table.setSortingEnabled(True)
         
         self.tabs.addTab(self.table_oseries, "Oseries")
         self.tabs.addTab(self.table_stresses, "Stresses")
@@ -97,12 +98,22 @@ class PastastoreMainDock(QDockWidget):
             cols = ["Name"] + df.columns.tolist()
             self.table_oseries.setColumnCount(len(cols))
             self.table_oseries.setHorizontalHeaderLabels(cols)
+            self.table_oseries.setSortingEnabled(False)
             self.table_oseries.setRowCount(len(df.index))
             for i, idx in enumerate(df.index):
                 self.table_oseries.setItem(i, 0, QTableWidgetItem(str(idx)))
                 for j, col in enumerate(df.columns):
-                     val = df.loc[idx, col]
-                     self.table_oseries.setItem(i, j+1, QTableWidgetItem(str(val)))
+                     val = store.oseries.loc[idx, col]
+                     item = QTableWidgetItem()
+                     if isinstance(val, (int, float, np.integer, np.floating)):
+                         if not np.isnan(val):
+                             item.setData(Qt.DisplayRole, float(val))
+                         else:
+                             item.setText("")
+                     else:
+                         item.setText(str(val))
+                     self.table_oseries.setItem(i, j+1, item)
+            self.table_oseries.setSortingEnabled(True)
             
         # Stresses Table
         if hasattr(store, 'stresses') and len(store.stresses.index) > 0:
@@ -110,12 +121,22 @@ class PastastoreMainDock(QDockWidget):
             cols = ["Name"] + df.columns.tolist()
             self.table_stresses.setColumnCount(len(cols))
             self.table_stresses.setHorizontalHeaderLabels(cols)
+            self.table_stresses.setSortingEnabled(False)
             self.table_stresses.setRowCount(len(df.index))
             for i, idx in enumerate(df.index):
                 self.table_stresses.setItem(i, 0, QTableWidgetItem(str(idx)))
                 for j, col in enumerate(df.columns):
-                    val = df.loc[idx, col]
-                    self.table_stresses.setItem(i, j+1, QTableWidgetItem(str(val)))
+                    val = store.stresses.loc[idx, col]
+                    item = QTableWidgetItem()
+                    if isinstance(val, (int, float, np.integer, np.floating)):
+                        if not np.isnan(val):
+                            item.setData(Qt.DisplayRole, float(val))
+                        else:
+                            item.setText("")
+                    else:
+                        item.setText(str(val))
+                    self.table_stresses.setItem(i, j+1, item)
+            self.table_stresses.setSortingEnabled(True)
             
         # Models List (Keep as list as requested)
         if hasattr(store, 'model_names') and len(store.model_names) > 0:
