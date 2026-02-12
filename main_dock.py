@@ -18,6 +18,7 @@ class PastastoreMainDock(QDockWidget):
     settings_requested = pyqtSignal()
     tab_changed = pyqtSignal(str)
     delete_model_requested = pyqtSignal(list) # names (list)
+    edit_model_requested = pyqtSignal(str) # model name
 
     def __init__(self, parent=None):
         super(PastastoreMainDock, self).__init__("Pastastore Viewer", parent)
@@ -81,6 +82,7 @@ class PastastoreMainDock(QDockWidget):
         self.table_stresses.itemSelectionChanged.connect(lambda: self._on_selection_changed("stresses"))
         self.list_models.itemSelectionChanged.connect(lambda: self._on_selection_changed("models"))
         self.list_models.customContextMenuRequested.connect(self.show_model_context_menu)
+        self.list_models.itemDoubleClicked.connect(lambda item: self.edit_model_requested.emit(item.text()))
         
         self.tabs.currentChanged.connect(self._on_tab_changed)
         
@@ -277,6 +279,13 @@ class PastastoreMainDock(QDockWidget):
             return
             
         menu = QMenu()
+        
+        # Edit Action (Single selection only)
+        if len(items) == 1:
+            edit_action = QAction("Edit Model", self)
+            edit_action.triggered.connect(lambda: self.edit_model_requested.emit(items[0].text()))
+            menu.addAction(edit_action)
+            
         delete_action = QAction("Delete Model(s)", self)
         delete_action.triggered.connect(lambda: self.delete_model_requested.emit([i.text() for i in items]))
         menu.addAction(delete_action)

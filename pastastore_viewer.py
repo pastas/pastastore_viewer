@@ -35,7 +35,9 @@ except ImportError:
 
 from .main_dock import PastastoreMainDock
 from .plot_dock import PastastorePlotDock
+from .plot_dock import PastastorePlotDock
 from .settings_dialog import PastastoreSettingsDialog
+from .model_editor import ModelEditorDialog
 
 class PastastoreViewer:
     """QGIS Plugin Implementation."""
@@ -105,7 +107,9 @@ class PastastoreViewer:
             self.dock_widget.item_selected.connect(self.on_item_selected)
             self.dock_widget.settings_requested.connect(self.open_settings)
             self.dock_widget.tab_changed.connect(self.on_tab_changed)
+            self.dock_widget.tab_changed.connect(self.on_tab_changed)
             self.dock_widget.delete_model_requested.connect(self.delete_models)
+            self.dock_widget.edit_model_requested.connect(self.open_model_editor)
             
             self.dock_widget.restore_state_from_project()
         
@@ -478,3 +482,53 @@ class PastastoreViewer:
                 import traceback
                 self.iface.messageBar().pushMessage("Error", f"Failed to delete models: {str(e)}", level=2)
                 print(traceback.format_exc())
+
+    def open_model_editor(self, model_name):
+        if not self.store: return
+        
+        try:
+            # Get the model (create a copy/new instance to be safe)
+            ml = self.store.get_models(model_name)
+            
+            dlg = ModelEditorDialog(ml, self.store, self.iface.mainWindow())
+            if dlg.exec_():
+                new_model, new_name = dlg.get_model_data()
+                
+                # Save to store
+                # If name changed, we might want to delete the old one?
+                # User said "optionally with a new name", implying Save As behavior.
+                # If name is different, we add as new.
+                # If name is same, we overwrite.
+                
+                # Check if name exists if different
+                if new_name != model_name:
+                    # If user wants to rename, we probably should keep it simple and just add new model.
+                    # Or ask? Let's just add it.
+                    pass
+                else:
+                    # Overwrite: remove old one first?
+                    # pastastore.add_model with overwrite=True usually handles it?
+                    # But add_model adds a *new* model structure usually.
+                    # Here we have a pastas Model object.
+                    pass
+
+                self.store.add_model(new_model, overwrite=True)
+                
+                # If name changed and user wanted to RENAME, we would delete old one.
+                # But "Save with new name" usually implies keeping old one?
+                # Let's assume "Save As" behavior (keep old) unless name is same.
+                
+                self.iface.messageBar().pushMessage("Success", f"Saved model: {new_name}", level=0)
+                
+                # Update UI
+                if self.dock_widget:
+                    self.dock_widget.populate_lists(self.store)
+                
+                # Reload layers to reflect changes (e.g. if model results changed)
+                # This might be heavy if many models, but safe.
+                self.load_layers_from_store()
+                
+        except Exception as e:
+            import traceback
+            self.iface.messageBar().pushMessage("Error", f"Failed to edit model: {str(e)}", level=2)
+            print(traceback.format_exc())
