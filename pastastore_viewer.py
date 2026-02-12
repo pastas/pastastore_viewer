@@ -105,6 +105,7 @@ class PastastoreViewer:
             self.dock_widget.item_selected.connect(self.on_item_selected)
             self.dock_widget.settings_requested.connect(self.open_settings)
             self.dock_widget.tab_changed.connect(self.on_tab_changed)
+            self.dock_widget.delete_model_requested.connect(self.delete_models)
             
             self.dock_widget.restore_state_from_project()
         
@@ -236,10 +237,7 @@ class PastastoreViewer:
         else:
             group = root.addGroup("Pastastore")
         
-        if len(self.store.oseries.index) > 0:
-            self._add_layer(self.store.oseries, "oseries", group)
-        if hasattr(self.store, 'stresses') and len(self.store.stresses.index) > 0:
-            self._add_layer(self.store.stresses, "stresses", group)
+        # Add models first so they are on top (z-order)
         if hasattr(self.store, 'model_names') and len(self.store.model_names) > 0:
             model_oseries = [
                 self.store.get_models(m, return_dict=True)["oseries"]["name"]
@@ -248,6 +246,12 @@ class PastastoreViewer:
             models = self.store.oseries.loc[model_oseries]
             models.index = self.store.model_names
             self._add_layer(models, "models", group)
+            
+        if hasattr(self.store, 'stresses') and len(self.store.stresses.index) > 0:
+            self._add_layer(self.store.stresses, "stresses", group)
+            
+        if len(self.store.oseries.index) > 0:
+            self._add_layer(self.store.oseries, "oseries", group)
 
     def _add_layer(self, data, layer_name, group):
         try:
@@ -423,9 +427,54 @@ class PastastoreViewer:
                     self.plot_dock.plot_series(data, title=title)
                 
             elif category == "models":
-                name = names[0]
-                ml = self.store.get_models(name)
+                data_list = []
+                for name in names:
+                    try:
+                         ml = self.store.get_models(name)
+                         data_list.append({
+                             'name': name,
+                             'obs': ml.observations(),
+                             'sim': ml.simulate(),
+                             'r2': ml.stats.rsq()
+                         })
+                    except:
+                        continue
+                
                 if self.plot_dock:
-                    self.plot_dock.plot_model(ml.oseries.series, ml.simulate(), title=f"Model: {name}", model_obj=ml)
+                     self.plot_dock.plot_models(data_list)
         except Exception as e:
             self.iface.messageBar().pushMessage("Error", f"Plot error: {str(e)}", level=2)
+
+    def delete_models(self, names):
+        if not self.store: return
+        
+        reply = QMessageBox.question(
+            self.iface.mainWindow(), 
+            "Confirm Deletion", 
+            f"Are you sure you want to delete {len(names)} model(s)?\n\n{', '.join(names)}",
+            QMessageBox.Yes | QMessageBox.No, 
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                # 1. Delete from store
+                self.store.del_models(names)
+                
+                # 2. Reload layers (simplest way to update QGIS map)
+                self.load_layers_from_store()
+                
+                # 3. Refresh lists
+                if self.dock_widget:
+                    self.dock_widget.populate_lists(self.store)
+                    
+                # 4. Clear plot if it was showing a deleted model
+                if self.plot_dock:
+                    self.plot_dock.clear_plot()
+                    
+                self.iface.messageBar().pushMessage("Success", f"Deleted {len(names)} model(s)", level=0)
+                
+            except Exception as e:
+                import traceback
+                self.iface.messageBar().pushMessage("Error", f"Failed to delete models: {str(e)}", level=2)
+                print(traceback.format_exc())

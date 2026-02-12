@@ -17,6 +17,7 @@ class PastastoreMainDock(QDockWidget):
     item_selected = pyqtSignal(str, list) # category, names (list)
     settings_requested = pyqtSignal()
     tab_changed = pyqtSignal(str)
+    delete_model_requested = pyqtSignal(list) # names (list)
 
     def __init__(self, parent=None):
         super(PastastoreMainDock, self).__init__("Pastastore Viewer", parent)
@@ -62,6 +63,8 @@ class PastastoreMainDock(QDockWidget):
         self.table_oseries = QTableWidget()
         self.table_stresses = QTableWidget()
         self.list_models = QListWidget()
+        self.list_models.setSelectionMode(QListWidget.ExtendedSelection)
+        self.list_models.setContextMenuPolicy(Qt.CustomContextMenu)
         
         for table in [self.table_oseries, self.table_stresses]:
             table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -76,7 +79,8 @@ class PastastoreMainDock(QDockWidget):
         
         self.table_oseries.itemSelectionChanged.connect(lambda: self._on_selection_changed("oseries"))
         self.table_stresses.itemSelectionChanged.connect(lambda: self._on_selection_changed("stresses"))
-        self.list_models.itemClicked.connect(lambda item: self.item_selected.emit("models", [item.text()]))
+        self.list_models.itemSelectionChanged.connect(lambda: self._on_selection_changed("models"))
+        self.list_models.customContextMenuRequested.connect(self.show_model_context_menu)
         
         self.tabs.currentChanged.connect(self._on_tab_changed)
         
@@ -195,6 +199,9 @@ class PastastoreMainDock(QDockWidget):
         elif category == "stresses":
             items = self.table_stresses.selectedItems()
             names = sorted(list(set([self.table_stresses.item(item.row(), 0).text() for item in items])))
+        elif category == "models":
+            items = self.list_models.selectedItems()
+            names = [item.text() for item in items]
         else:
             return
             
@@ -261,3 +268,17 @@ class PastastoreMainDock(QDockWidget):
             except:
                 pass
             self.visibilityChanged.connect(self.save_state_to_project)
+
+    def show_model_context_menu(self, position):
+        from qgis.PyQt.QtWidgets import QMenu, QAction
+        
+        items = self.list_models.selectedItems()
+        if not items:
+            return
+            
+        menu = QMenu()
+        delete_action = QAction("Delete Model(s)", self)
+        delete_action.triggered.connect(lambda: self.delete_model_requested.emit([i.text() for i in items]))
+        menu.addAction(delete_action)
+        
+        menu.exec_(self.list_models.mapToGlobal(position))

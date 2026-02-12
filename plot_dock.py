@@ -116,6 +116,12 @@ class PastastorePlotDock(QDockWidget):
                 legend.items = []
             else:
                 self.plot_widget.addLegend()
+        else:
+            # Remove legend if only 1 item to avoid redundancy
+            legend = self.plot_widget.plotItem.legend
+            if legend:
+                legend.scene().removeItem(legend)
+                self.plot_widget.plotItem.legend = None
 
         colors = ['b', 'r', 'g', 'c', 'm', 'y']
         for i, (name, series_data) in enumerate(items):
@@ -156,6 +162,60 @@ class PastastorePlotDock(QDockWidget):
             except:
                 pass
         
+        self.fit_plot()
+
+    def plot_models(self, data_list):
+        """Plot multiple models.
+        data_list: list of dicts with keys 'name', 'obs', 'sim', 'r2'
+        """
+        if pg is None: return
+        self.plot_widget.clear()
+        
+        if not data_list:
+            return
+            
+        if len(data_list) == 1:
+            d = data_list[0]
+            # specific title for single model
+            title = f"Model: {d['name']}"
+            if d.get('r2') is not None:
+                title += f" (R²: {d['r2']:.3f})"
+            self.plot_widget.setTitle(title, color='k')
+        else:
+            self.plot_widget.setTitle(f"Models ({len(data_list)} selected)", color='k')
+            
+        self.plot_widget.addLegend()
+        
+        colors = ['b', 'r', 'g', 'c', 'm', 'y', 'k', '#FF00FF', '#00FFFF', '#FFA500']
+        
+        for i, d in enumerate(data_list):
+            if len(data_list) == 1:
+                obs_color = 'k'
+                sim_color = 'r'
+                name = d['name'] # Keep name simple
+                obs_label = "Observations"
+                sim_label = "Simulation"
+            else:
+                color = colors[i % len(colors)]
+                obs_color = color
+                sim_color = color
+                name = d['name']
+                obs_label = f"{name} (Obs)"
+                sim_label = f"{name} (Sim)"
+            
+            # Observations
+            if d.get('obs') is not None:
+                ox, oy = self._prepare_data(d['obs'])
+                if ox is not None:
+                     self.plot_widget.plot(ox, oy, pen=None, symbol='o', symbolSize=5, symbolBrush=obs_color, name=obs_label, connect='finite')
+
+            # Simulation
+            if d.get('sim') is not None:
+                sx, sy = self._prepare_data(d['sim'])
+                if sx is not None:
+                    # Simulation gets the same color as observations or red for single
+                    self.plot_widget.plot(sx, sy, pen=pg.mkPen(sim_color, width=2), name=sim_label, connect='finite')
+
         self.fit_plot()
 
     def _enable_rect_zoom(self):
