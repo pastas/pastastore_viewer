@@ -1,0 +1,4 @@
+pastastore
+pandas
+numpy
+pyqtgraph

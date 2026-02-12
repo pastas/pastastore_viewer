@@ -1,0 +1,12 @@
+[general]
+name=Pastastore Viewer
+qgisMinimumVersion=3.0
+description=Visualize time series and models from a PastaStore zip file.
+version=0.1
+author=Artesia
+email=r.calje@artesia-water.nl
+about=View PastaStore data including oseries, stresses, and models in QGIS.
+tracker=https://github.com/pastas/pastastore_viewer/issues
+repository=https://github.com/pastas/pastastore_viewer
+icon=icon.svg
+experimental=True
