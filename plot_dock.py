@@ -42,7 +42,7 @@ class PastastorePlotDock(QDockWidget):
         if pg:
             self.plot_widget = pg.PlotWidget(axisItems={'bottom': DateAxisItem()})
             self.plot_widget.setBackground('w')
-            self.plot_widget.showGrid(x=True, y=True)
+            self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
             
             # Style axes to black
             for axis in ['bottom', 'left']:
@@ -69,9 +69,10 @@ class PastastorePlotDock(QDockWidget):
             vb.autoRange(padding=0.02) 
             self._enable_pan_zoom()
 
-    def clear_plot(self):
+    def clear_plot(self, category="data"):
         if pg:
             self.plot_widget.clear()
+            self.plot_widget.setTitle(f"No {category} selected", color='k')
 
     def _prepare_data(self, series):
         if series is None or series.empty:

@@ -110,6 +110,8 @@ class PastastoreViewer:
             self.dock_widget.delete_model_requested.connect(self.delete_models)
             self.dock_widget.edit_model_requested.connect(self.open_model_editor)
             self.dock_widget.results_requested.connect(self.open_results_plot)
+            self.dock_widget.select_models_for_oseries_requested.connect(self.select_models_for_oseries)
+            self.dock_widget.select_models_for_stresses_requested.connect(self.select_models_for_stresses)
             
             self.dock_widget.restore_state_from_project()
         
@@ -221,6 +223,8 @@ class PastastoreViewer:
                 if self.dock_widget:
                     self.dock_widget.populate_lists(self.store)
                     self.dock_widget.set_filename(filename)
+                    # Set active layer based on current tab
+                    self._set_active_layer_for_current_tab()
                 self.iface.messageBar().pushMessage("Success", f"Loaded {filename}", level=0)
             except Exception as e:
                 err_msg = traceback.format_exc()
@@ -314,12 +318,12 @@ class PastastoreViewer:
             layer.updateExtents()
             
             symbol = layer.renderer().symbol()
-            colors = {"oseries": Qt.blue, "stresses": Qt.red, "models": Qt.green}
+            from qgis.PyQt.QtGui import QColor
+            colors = {"oseries": Qt.blue, "stresses": Qt.red, "models": QColor(0, 128, 0)}
             color = colors.get(layer_name, Qt.black)
             symbol.setColor(color)
             
             if layer_name == "models":
-                from qgis.PyQt.QtGui import QColor
                 symbol.setSize(4.0)
                 sl = symbol.symbolLayer(0)
                 if sl:
@@ -394,6 +398,23 @@ class PastastoreViewer:
                     self.is_updating_selection = False
         self.iface.mapCanvas().refresh()
 
+    def _set_active_layer_for_current_tab(self):
+        """Set the active QGIS layer based on the currently open tab."""
+        if not self.dock_widget:
+            return
+            
+        current_tab_index = self.dock_widget.tabs.currentIndex()
+        categories = ["oseries", "stresses", "models"]
+        
+        if current_tab_index < len(categories):
+            category = categories[current_tab_index]
+            layers = QgsProject.instance().mapLayersByName(category)
+            
+            for layer in layers:
+                if layer.customProperty("pastastore_type") == category:
+                    self.iface.setActiveLayer(layer)
+                    break
+
     def on_map_selection_changed(self):
         if self.is_updating_selection:
             return
@@ -411,7 +432,7 @@ class PastastoreViewer:
         if not self.store: return
         if not names:
             if self.plot_dock:
-                self.plot_dock.clear_plot()
+                self.plot_dock.clear_plot(category=category)
             return
             
         if isinstance(names, str):
@@ -550,4 +571,113 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
             self.iface.messageBar().pushMessage("Error", f"Failed to show results: {str(e)}", level=2)
+            print(traceback.format_exc())
+
+    def select_models_for_oseries(self, oseries_names):
+        """Selects models in the dock that correspond to the given oseries names."""
+        if not self.store: return
+        
+        try:
+            matching_models = []
+            # This could be slow if there are many models. Optimize if needed.
+            # Does pastastore have a reverse look-up? 
+            # Not directly obvious, so we iterate for now.
+            for m in self.store.model_names:
+                # get_models returns a dict if return_dict=True which is fast metadata access usually
+                meta = self.store.get_models(m, return_dict=True)
+                if meta and "oseries" in meta and "name" in meta["oseries"]:
+                    if meta["oseries"]["name"] in oseries_names:
+                        matching_models.append(m)
+            
+            if matching_models:
+                # Warn if more than 10 models
+                if len(matching_models) > 10:
+                    reply = QMessageBox.question(
+                        self.iface.mainWindow(),
+                        "Many Models Selected",
+                        f"This will select {len(matching_models)} models. Continue?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        return
+                
+                self.dock_widget.select_items_in_list("models", matching_models)
+                self.dock_widget.tabs.setCurrentIndex(2) # Switch to models tab
+            else:
+                self.iface.messageBar().pushMessage("Info", f"No models found for selected oseries: {oseries_names}.", level=0)
+                
+        except Exception as e:
+            import traceback
+            self.iface.messageBar().pushMessage("Error", f"Failed to select models: {str(e)}", level=2)
+            print(traceback.format_exc())
+
+    def select_models_for_stresses(self, stress_names):
+        """Selects models in the dock that use the given stress names."""
+        if not self.store: return
+        
+        try:
+            matching_models = []
+            for m in self.store.model_names:
+                meta = self.store.get_models(m, return_dict=True)
+                if meta and "stressmodels" in meta:
+                    # Check all stressmodels in this model
+                    for sm_name, sm_data in meta["stressmodels"].items():
+                        found = False
+                        
+                        # Check regular stress models (StressModel)
+                        if "stress" in sm_data:
+                            # stress can be a list or single item
+                            stress_list = sm_data["stress"] if isinstance(sm_data["stress"], list) else [sm_data["stress"]]
+                            # Check if any stress name matches
+                            for stress_info in stress_list:
+                                if isinstance(stress_info, dict) and "name" in stress_info:
+                                    if stress_info["name"] in stress_names:
+                                        matching_models.append(m)
+                                        found = True
+                                        break
+                                elif isinstance(stress_info, str) and stress_info in stress_names:
+                                    matching_models.append(m)
+                                    found = True
+                                    break
+                        
+                        # Check RechargeModel stresses (prec and evap)
+                        if not found:
+                            for key in ["prec", "evap"]:
+                                if key in sm_data:
+                                    stress_info = sm_data[key]
+                                    if isinstance(stress_info, dict) and "name" in stress_info:
+                                        if stress_info["name"] in stress_names:
+                                            matching_models.append(m)
+                                            found = True
+                                            break
+                                    elif isinstance(stress_info, str) and stress_info in stress_names:
+                                        matching_models.append(m)
+                                        found = True
+                                        break
+                        
+                        if found:
+                            break
+            
+            if matching_models:
+                # Warn if more than 10 models
+                if len(matching_models) > 10:
+                    reply = QMessageBox.question(
+                        self.iface.mainWindow(),
+                        "Many Models Selected",
+                        f"This will select {len(matching_models)} models. Continue?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No
+                    )
+                    if reply == QMessageBox.No:
+                        return
+                
+                self.dock_widget.select_items_in_list("models", matching_models)
+                self.dock_widget.tabs.setCurrentIndex(2)
+            else:
+                self.iface.messageBar().pushMessage("Info", f"No models found for selected stresses: {stress_names}.", level=0)
+                
+        except Exception as e:
+            import traceback
+            self.iface.messageBar().pushMessage("Error", f"Failed to select models: {str(e)}", level=2)
             print(traceback.format_exc())

@@ -87,15 +87,44 @@ class ModelEditorDialog(QDialog):
         
         # Frequency Dropdown
         self.cbo_freq = QComboBox()
-        self.cbo_freq.addItems(["D", "H", "W", "M", "Y", "7D", "14D"])
-        self.cbo_freq.setEditable(True) # Allow custom frequencies
-        freq = model.settings.get("freq", "D")
+        self.cbo_freq.addItems(["d", "h", "7d", "14d", "30d"])
+        self.cbo_freq.setEditable(True) 
+        freq = model.settings.get("freq", "d")
         self.cbo_freq.setCurrentText(str(freq))
+        
+        # Noise & Transform Dropdowns
+        self.cbo_noise = QComboBox()
+        self.cbo_noise.addItems(["None", "ArNoiseModel"])
+        # get the noise model type
+        current_text = "None"
+        if model.noisemodel is not None:
+            if model.noisemodel.__class__ == ps.ArNoiseModel:
+                current_text = "ArNoiseModel"
+            else:
+                # show a warning that the noise model in the model is not supported
+                msg = f"The noise model {model.noisemodel.__class__} is not supported."  
+                QMessageBox.warning(self, "Unsupported Noise Model", msg) 
+        self.cbo_noise.setCurrentText(current_text)
+        
+        self.cbo_transform = QComboBox()
+        self.cbo_transform.addItems(["None", "ThresholdTransform"])
+        # get the transform type
+        current_text = "None"
+        if model.transform is not None:
+            if model.transform.__class__ == ps.ThresholdTransform:
+                current_text = "ThresholdTransform"
+            else:
+                # show a warning that the transform in the model is not supported
+                msg = f"The transform {model.transform.__class__} is not supported."
+                QMessageBox.warning(self, "Unsupported Transform", msg) 
+        self.cbo_transform.setCurrentText(current_text)
         
         self.form_general.addRow("Model Name:", self.le_name)
         self.form_general.addRow("Tmin:", self.de_tmin)
         self.form_general.addRow("Tmax:", self.de_tmax)
         self.form_general.addRow("Frequency:", self.cbo_freq)
+        self.form_general.addRow("Noise Model:", self.cbo_noise)
+        self.form_general.addRow("Transform:", self.cbo_transform)
         self.group_general.setLayout(self.form_general)
         self.vbox_general.addWidget(self.group_general)
         self.vbox_general.addStretch()
@@ -538,6 +567,21 @@ class ModelEditorDialog(QDialog):
                 except Exception as e:
                     # Parameter might not be in the new model structure
                     pass
+
+            # Noise Model
+            if self.cbo_noise.currentText() == "ArNoiseModel":
+                model.add_noisemodel(ps.ArNoiseModel())
+            else:
+                if model.noisemodel is not None:
+                    model.del_noisemodel()
+                    
+            # Transform
+            if self.cbo_transform.currentText() == "ThresholdTransform":
+                # Assuming simple Transform with no args for now or default
+                model.add_transform(ps.ThresholdTransform())
+            else:
+                if model.transform is not None:
+                    model.del_transform()
 
             # Solve
             model.solve(freq=freq, tmin=tmin, tmax=tmax, report=False)

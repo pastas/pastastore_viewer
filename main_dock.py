@@ -20,6 +20,9 @@ class PastastoreMainDock(QDockWidget):
     delete_model_requested = pyqtSignal(list) # names (list)
     edit_model_requested = pyqtSignal(str) # model name
     results_requested = pyqtSignal(str) # model name
+    select_models_for_oseries_requested = pyqtSignal(list) # oseries names
+    select_models_for_stresses_requested = pyqtSignal(list) # stresses names
+
 
     def __init__(self, parent=None):
         super(PastastoreMainDock, self).__init__("Pastastore Viewer", parent)
@@ -71,9 +74,12 @@ class PastastoreMainDock(QDockWidget):
         for table in [self.table_oseries, self.table_stresses]:
             table.setSelectionBehavior(QTableWidget.SelectRows)
             table.setSelectionMode(QTableWidget.ExtendedSelection)
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+            # Allow resizing
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+            table.horizontalHeader().setStretchLastSection(True) 
             table.setEditTriggers(QTableWidget.NoEditTriggers)
             table.setSortingEnabled(True)
+            table.setContextMenuPolicy(Qt.CustomContextMenu)
         
         self.tabs.addTab(self.table_oseries, "Oseries")
         self.tabs.addTab(self.table_stresses, "Stresses")
@@ -82,6 +88,9 @@ class PastastoreMainDock(QDockWidget):
         self.table_oseries.itemSelectionChanged.connect(lambda: self._on_selection_changed("oseries"))
         self.table_stresses.itemSelectionChanged.connect(lambda: self._on_selection_changed("stresses"))
         self.list_models.itemSelectionChanged.connect(lambda: self._on_selection_changed("models"))
+        
+        self.table_oseries.customContextMenuRequested.connect(self.show_oseries_context_menu)
+        self.table_stresses.customContextMenuRequested.connect(self.show_stresses_context_menu)
         self.list_models.customContextMenuRequested.connect(self.show_model_context_menu)
         self.list_models.itemDoubleClicked.connect(lambda item: self.edit_model_requested.emit(item.text()))
         
@@ -89,6 +98,67 @@ class PastastoreMainDock(QDockWidget):
         
         self.layout.addWidget(self.tabs)
         self.setWidget(self.container)
+
+    def show_oseries_context_menu(self, position):
+        from qgis.PyQt.QtWidgets import QMenu, QAction
+        
+        selected_items = self.table_oseries.selectedItems()
+        if not selected_items:
+            return
+            
+        # Get unique names from selection (row-based)
+        rows = sorted(list(set(item.row() for item in selected_items)))
+        names = [self.table_oseries.item(row, 0).text() for row in rows]
+        
+        menu = QMenu()
+        select_action = QAction("Select Models", self)
+        select_action.triggered.connect(lambda: self.select_models_for_oseries_requested.emit(names))
+        menu.addAction(select_action)
+        
+        menu.exec_(self.table_oseries.mapToGlobal(position))
+
+    def show_stresses_context_menu(self, position):
+        from qgis.PyQt.QtWidgets import QMenu, QAction
+        
+        selected_items = self.table_stresses.selectedItems()
+        if not selected_items:
+            return
+            
+        # Get unique names from selection
+        rows = sorted(list(set(item.row() for item in selected_items)))
+        names = [self.table_stresses.item(row, 0).text() for row in rows]
+        
+        menu = QMenu()
+        select_action = QAction("Select Models", self)
+        select_action.triggered.connect(lambda: self.select_models_for_stresses_requested.emit(names))
+        menu.addAction(select_action)
+        
+        menu.exec_(self.table_stresses.mapToGlobal(position))
+
+    def show_model_context_menu(self, position):
+        from qgis.PyQt.QtWidgets import QMenu, QAction
+        
+        items = self.list_models.selectedItems()
+        if not items:
+            return
+            
+        menu = QMenu()
+        
+        # Edit Action (Single selection only)
+        if len(items) == 1:
+            edit_action = QAction("Edit Model", self)
+            edit_action.triggered.connect(lambda: self.edit_model_requested.emit(items[0].text()))
+            menu.addAction(edit_action)
+            
+            results_action = QAction("Show Results", self)
+            results_action.triggered.connect(lambda: self.results_requested.emit(items[0].text()))
+            menu.addAction(results_action)
+            
+        delete_action = QAction("Delete Model(s)", self)
+        delete_action.triggered.connect(lambda: self.delete_model_requested.emit([i.text() for i in items]))
+        menu.addAction(delete_action)
+        
+        menu.exec_(self.list_models.mapToGlobal(position))
 
     def populate_lists(self, store):
         """Fill tables/lists with data from the store."""
@@ -121,6 +191,8 @@ class PastastoreMainDock(QDockWidget):
                          item.setText(str(val))
                      self.table_oseries.setItem(i, j+1, item)
             self.table_oseries.setSortingEnabled(True)
+            # Set Name column width
+            self.table_oseries.setColumnWidth(0, 200)
             
         # Stresses Table
         if hasattr(store, 'stresses') and len(store.stresses.index) > 0:
@@ -144,6 +216,8 @@ class PastastoreMainDock(QDockWidget):
                         item.setText(str(val))
                     self.table_stresses.setItem(i, j+1, item)
             self.table_stresses.setSortingEnabled(True)
+            # Set Name column width
+            self.table_stresses.setColumnWidth(0, 200)
             
         # Models List (Keep as list as requested)
         if hasattr(store, 'model_names') and len(store.model_names) > 0:
@@ -169,29 +243,33 @@ class PastastoreMainDock(QDockWidget):
                 if not names:
                     return
                     
-                if isinstance(list_widget, QTableWidget):
+                if isinstance(list_widget, (QTableWidget, QListWidget)):
                     from qgis.PyQt.QtCore import QItemSelectionModel
                     selection_model = list_widget.selectionModel()
-                    for row in range(list_widget.rowCount()):
-                        item = list_widget.item(row, 0)
-                        if item and item.text() in names:
-                            index = list_widget.model().index(row, 0)
-                            selection_model.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
                     
-                    selected = list_widget.selectedItems()
-                    if selected:
-                        list_widget.scrollToItem(selected[0])
-                else:
-                    for name in names:
-                        items = list_widget.findItems(name, Qt.MatchExactly)
-                        if items:
-                            for item in items:
-                                item.setSelected(True)
-                    item = list_widget.currentItem()
-                    if item:
-                        list_widget.scrollToItem(item)
+                    if isinstance(list_widget, QTableWidget):
+                        for row in range(list_widget.rowCount()):
+                            item = list_widget.item(row, 0)
+                            if item and item.text() in names:
+                                index = list_widget.model().index(row, 0)
+                                selection_model.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+                    else: # QListWidget
+                        for name in names:
+                             items = list_widget.findItems(name, Qt.MatchExactly)
+                             for item in items:
+                                 index = list_widget.indexFromItem(item)
+                                 selection_model.select(index, QItemSelectionModel.Select)
+                                 
+                    if isinstance(list_widget, QTableWidget):
+                        selected = list_widget.selectedItems()
+                        if selected: list_widget.scrollToItem(selected[0])
+                    else:
+                        selected = list_widget.selectedItems()
+                        if selected: list_widget.scrollToItem(selected[0])
             finally:
                 self.is_updating_selection = False
+                # Trigger selection once
+                self._on_selection_changed(category)
 
     def _on_selection_changed(self, category):
         if self.is_updating_selection:
