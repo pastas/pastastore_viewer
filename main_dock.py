@@ -22,6 +22,7 @@ class PastastoreMainDock(QDockWidget):
     results_requested = pyqtSignal(str) # model name
     select_models_for_oseries_requested = pyqtSignal(list) # oseries names
     select_models_for_stresses_requested = pyqtSignal(list) # stresses names
+    edit_oseries_requested = pyqtSignal(str) # oseries name
 
 
     def __init__(self, parent=None):
@@ -111,6 +112,13 @@ class PastastoreMainDock(QDockWidget):
         names = [self.table_oseries.item(row, 0).text() for row in rows]
         
         menu = QMenu()
+        
+        # Edit Series (single selection only)
+        if len(names) == 1:
+            edit_action = QAction("Edit Series", self)
+            edit_action.triggered.connect(lambda: self.edit_oseries_requested.emit(names[0]))
+            menu.addAction(edit_action)
+        
         select_action = QAction("Select Models", self)
         select_action.triggered.connect(lambda: self.select_models_for_oseries_requested.emit(names))
         menu.addAction(select_action)
