@@ -1,12 +1,10 @@
-# -*- coding: utf-8 -*-
-
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDialogButtonBox,
     QLabel, QCheckBox, QGroupBox, QComboBox, QMessageBox, QWidget,
     QHBoxLayout, QListWidget, QListWidgetItem, QPushButton, QSplitter,
-    QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView
+    QTabWidget, QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit
 )
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QDate
 import pandas as pd
 import numpy as np
 import pastastore as pst
@@ -20,7 +18,7 @@ class ModelEditorDialog(QDialog):
     def __init__(self, model: ps.Model, store: pst.PastaStore, parent=None):
         super(ModelEditorDialog, self).__init__(parent)
         self.setWindowTitle("Edit Model")
-        self.resize(800, 800) # Increased height for plot
+        self.resize(800, 800) 
         
         self.original_model = model
         self.store = store
@@ -42,32 +40,67 @@ class ModelEditorDialog(QDialog):
         self.plot_widget = pg.PlotWidget(axisItems={'bottom': DateAxisItem()})
         self.plot_widget.setBackground('w')
         self.plot_widget.showGrid(x=True, y=True)
-        # Style axes to black
         for axis in ['bottom', 'left']:
             ax = self.plot_widget.getAxis(axis)
             ax.setPen('k')
             ax.setTextPen('k')
         self.layout.addWidget(self.plot_widget)
         
-        # Top: General Settings
-        self.group_general = QGroupBox("General Settings")
-        self.form_general = QFormLayout()
-        self.le_name = QLineEdit(model.name)
-        self.le_tmin = QLineEdit(str(model.settings["tmin"]) if model.settings["tmin"] else "")
-        self.le_tmax = QLineEdit(str(model.settings["tmax"]) if model.settings["tmax"] else "")
-        self.le_freq = QLineEdit(str(model.settings["freq"]) if model.settings["freq"] else "D")
-        
-        self.form_general.addRow("Model Name:", self.le_name)
-        self.form_general.addRow("Tmin:", self.le_tmin)
-        self.form_general.addRow("Tmax:", self.le_tmax)
-        self.form_general.addRow("Frequency:", self.le_freq)
-        self.group_general.setLayout(self.form_general)
-        self.layout.addWidget(self.group_general)
-        
         # Middle: Tabs
         self.tabs = QTabWidget()
         self.layout.addWidget(self.tabs)
         
+        # Tab 0: General Settings
+        self.tab_general = QWidget()
+        self.vbox_general = QVBoxLayout()
+        self.tab_general.setLayout(self.vbox_general)
+        
+        self.group_general = QGroupBox("Model Settings")
+        self.form_general = QFormLayout()
+        
+        self.le_name = QLineEdit(model.name)
+        
+        # Date Selectors for Tmin/Tmax
+        self.de_tmin = QDateEdit()
+        self.de_tmin.setCalendarPopup(True)
+        self.de_tmax = QDateEdit()
+        self.de_tmax.setCalendarPopup(True)
+        
+        # Set dates from model
+        tmin = model.settings.get("tmin")
+        tmax = model.settings.get("tmax")
+        # Find absolute data bounds for calendar range
+        obs = model.observations()
+        if not obs.empty:
+            abs_min = QDate.fromString(str(obs.index.min().date()), "yyyy-MM-dd")
+            abs_max = QDate.fromString(str(obs.index.max().date()), "yyyy-MM-dd")
+            self.de_tmin.setMinimumDate(abs_min)
+            self.de_tmin.setMaximumDate(abs_max)
+            self.de_tmax.setMinimumDate(abs_min)
+            self.de_tmax.setMaximumDate(abs_max)
+            
+            if tmin: self.de_tmin.setDate(QDate.fromString(str(pd.to_datetime(tmin).date()), "yyyy-MM-dd"))
+            else: self.de_tmin.setDate(abs_min)
+            
+            if tmax: self.de_tmax.setDate(QDate.fromString(str(pd.to_datetime(tmax).date()), "yyyy-MM-dd"))
+            else: self.de_tmax.setDate(abs_max)
+        
+        # Frequency Dropdown
+        self.cbo_freq = QComboBox()
+        self.cbo_freq.addItems(["D", "H", "W", "M", "Y", "7D", "14D"])
+        self.cbo_freq.setEditable(True) # Allow custom frequencies
+        freq = model.settings.get("freq", "D")
+        self.cbo_freq.setCurrentText(str(freq))
+        
+        self.form_general.addRow("Model Name:", self.le_name)
+        self.form_general.addRow("Tmin:", self.de_tmin)
+        self.form_general.addRow("Tmax:", self.de_tmax)
+        self.form_general.addRow("Frequency:", self.cbo_freq)
+        self.group_general.setLayout(self.form_general)
+        self.vbox_general.addWidget(self.group_general)
+        self.vbox_general.addStretch()
+        self.tabs.addTab(self.tab_general, "General")
+
         # Tab 1: Stressmodels
         self.tab_stressmodels = QWidget()
         self.hbox_stresses = QHBoxLayout()
@@ -224,7 +257,15 @@ class ModelEditorDialog(QDialog):
         """Parse existing model structure into settings list."""
         settings = []
         for name, sm in model.stressmodels.items():
-            entry = {'name': name, 'inputs': [], 'up': True, 'rfunc': 'Gamma', 'type': 'StressModel', 'recharge': 'Linear'}
+            entry = {
+                'name': name, 
+                'inputs': [], 
+                'up': True, 
+                'rfunc': 'Gamma', 
+                'type': 'StressModel', 
+                'recharge': 'Linear',
+                'settings': sm.get_settings() # Current stress settings
+            }
             
             # Determine Type
             cls_name = sm.__class__.__name__
@@ -233,30 +274,26 @@ class ModelEditorDialog(QDialog):
             # Rfunc
             if hasattr(sm, 'rfunc') and sm.rfunc:
                 entry['rfunc'] = sm.rfunc.__class__.__name__
+                # Retrieve 'up' from rfunc
+                if hasattr(sm.rfunc, 'up'):
+                    entry['up'] = bool(sm.rfunc.up)
             else:
                 entry['rfunc'] = 'None'
                 
-            # Up
-            if hasattr(sm, 'settings') and sm.settings:
-                entry['up'] = True # Default
-                
             # Inputs
             if hasattr(sm, 'stress'):
-                # Single stress
                 if isinstance(sm.stress, list):
-                    s = sm.stress[0] 
+                    for s in sm.stress:
+                        if hasattr(s, 'name'): entry['inputs'].append(s.name)
                 else: 
-                     s = sm.stress
-                if hasattr(s, 'name'): entry['inputs'].append(s.name)
+                     if hasattr(sm.stress, 'name'): entry['inputs'].append(sm.stress.name)
             
             # RechargeModel specific
             if cls_name == 'RechargeModel':
-                 # precip, evap
                  if hasattr(sm, 'prec'):
                      entry['inputs'] = []
                      if hasattr(sm.prec, 'name'): entry['inputs'].append(sm.prec.name)
                      if hasattr(sm.evap, 'name'): entry['inputs'].append(sm.evap.name)
-                 if hasattr(sm, 'recharge'):
                      entry['recharge'] = sm.recharge.__class__.__name__
             
             settings.append(entry)
@@ -420,9 +457,9 @@ class ModelEditorDialog(QDialog):
             model = self.original_model
             
             # Apply General settings
-            tmin = self.le_tmin.text() or None
-            tmax = self.le_tmax.text() or None
-            freq = self.le_freq.text()
+            tmin = self.de_tmin.date().toString("yyyy-MM-dd")
+            tmax = self.de_tmax.date().toString("yyyy-MM-dd")
+            freq = self.cbo_freq.currentText()
             
             # Reconstruct Stressmodels
             # We must remove all old ones and add new ones based on settings
@@ -435,6 +472,8 @@ class ModelEditorDialog(QDialog):
                     name = s['name']
                     sm_type = s['type']
                     rfunc_name = s['rfunc']
+                    inputs = s.get('inputs', [])
+                    settings_dict = s.get('settings', {})
                     
                     # Rfunc class
                     rfunc = None
@@ -442,21 +481,25 @@ class ModelEditorDialog(QDialog):
                         rfunc = getattr(ps, rfunc_name)()
                         
                     if sm_type == 'StressModel':
-                         if not s['inputs']: continue
-                         ts = self.store.get_stresses(s['inputs'][0])
-                         sm = ps.StressModel(ts, rfunc=rfunc, name=name, up=s.get('up', True))
+                         if not inputs: continue
+                         ts = self.store.get_stresses(inputs[0])
+                         # Pass settings for the specific time series component
+                         sm_settings = settings_dict.get(inputs[0])
+                         sm = ps.StressModel(ts, rfunc=rfunc, name=name, up=s.get('up', True), settings=sm_settings)
                          model.add_stressmodel(sm)
                          
                     elif sm_type == 'RechargeModel':
-                         if len(s['inputs']) < 2: continue
-                         prec = self.store.get_stresses(s['inputs'][0])
-                         evap = self.store.get_stresses(s['inputs'][1])
+                         if len(inputs) < 2: continue
+                         prec = self.store.get_stresses(inputs[0])
+                         evap = self.store.get_stresses(inputs[1])
                          
                          recharge = ps.rch.Linear()
                          if s.get('recharge') == 'FlexModel': recharge = ps.rch.FlexModel()
                          elif s.get('recharge') == 'Berendrecht': recharge = ps.rch.Berendrecht()
                          
-                         sm = ps.RechargeModel(prec, evap, rfunc=rfunc, name=name, recharge=recharge)
+                         # Pass list of settings: [precip, evap]
+                         sm_settings = [settings_dict.get(inputs[0]), settings_dict.get(inputs[1])]
+                         sm = ps.RechargeModel(prec, evap, rfunc=rfunc, name=name, recharge=recharge, settings=sm_settings)
                          model.add_stressmodel(sm)
                          
                     elif sm_type == 'LinearTrend':
@@ -497,7 +540,7 @@ class ModelEditorDialog(QDialog):
                     pass
 
             # Solve
-            model.solve(tmin=tmin, tmax=tmax, report=False)
+            model.solve(freq=freq, tmin=tmin, tmax=tmax, report=False)
             self.new_model = model
             self.update_stats_label(model)
             self.update_plot(model)
