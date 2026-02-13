@@ -121,9 +121,11 @@ class PastastoreViewer:
 
     def create_dock(self):
         """Ensures the dock widgets are created and state is restored."""
+        main_dock_created = False
         if not self.dock_widget:
             self.dock_widget = PastastoreMainDock(self.iface.mainWindow())
             self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
+            main_dock_created = True
 
             # Connect dock signals
             self.dock_widget.load_requested.connect(self.load_pastastore)
@@ -141,8 +143,6 @@ class PastastoreViewer:
             )
             self.dock_widget.edit_oseries_requested.connect(self.open_oseries_editor)
 
-            self.dock_widget.restore_state_from_project()
-
         if not self.plot_dock:
             self.plot_dock = PastastorePlotDock(self.iface.mainWindow())
             self.iface.addDockWidget(Qt.BottomDockWidgetArea, self.plot_dock)
@@ -151,6 +151,9 @@ class PastastoreViewer:
             self.plot_dock.visibilityChanged.connect(
                 self.plot_dock.save_state_to_project
             )
+
+        if main_dock_created:
+            self.dock_widget.restore_state_from_project()
 
         return self.dock_widget
 
@@ -405,8 +408,16 @@ class PastastoreViewer:
             color = colors.get(layer_name, Qt.black)
             symbol.setColor(color)
 
+            if layer_name == "oseries":
+                symbol.setSize(3.0)
+                sl = symbol.symbolLayer(0)
+                if sl:
+                    sl.setFillColor(QColor(0, 0, 0, 0))
+                    sl.setStrokeColor(color)
+                    sl.setStrokeWidth(0.6)
+
             if layer_name == "models":
-                symbol.setSize(4.0)
+                symbol.setSize(5.0)
                 sl = symbol.symbolLayer(0)
                 if sl:
                     sl.setFillColor(QColor(0, 0, 0, 0))  # Hollow

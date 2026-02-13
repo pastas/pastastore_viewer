@@ -22,7 +22,7 @@ class PastastoreSettingsDialog(QDialog):
         layout.addWidget(self.crs_edit)
         
         from qgis.PyQt.QtWidgets import QCheckBox
-        self.cb_zoom = QCheckBox("Auto-zoom to selection")
+        self.cb_zoom = QCheckBox("Auto-pan to selection")
         self.cb_zoom.setChecked(kwargs.get('current_zoom', False))
         layout.addWidget(self.cb_zoom)
         

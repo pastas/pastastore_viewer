@@ -93,12 +93,20 @@ class PastastoreMainDock(QDockWidget):
         self.table_oseries.customContextMenuRequested.connect(self.show_oseries_context_menu)
         self.table_stresses.customContextMenuRequested.connect(self.show_stresses_context_menu)
         self.list_models.customContextMenuRequested.connect(self.show_model_context_menu)
+        self.table_oseries.itemDoubleClicked.connect(self._on_oseries_double_clicked)
         self.list_models.itemDoubleClicked.connect(lambda item: self.edit_model_requested.emit(item.text()))
         
         self.tabs.currentChanged.connect(self._on_tab_changed)
         
         self.layout.addWidget(self.tabs)
         self.setWidget(self.container)
+
+    def _on_oseries_double_clicked(self, item):
+        if item is None:
+            return
+        name_item = self.table_oseries.item(item.row(), 0)
+        if name_item:
+            self.edit_oseries_requested.emit(name_item.text())
 
     def show_oseries_context_menu(self, position):
         from qgis.PyQt.QtWidgets import QMenu, QAction

@@ -33,6 +33,7 @@ class SelectionViewBox(pg.ViewBox):
     def __init__(self, on_select=None, *args, **kwargs):
         super(SelectionViewBox, self).__init__(*args, **kwargs)
         self.on_select = on_select
+        self.selection_enabled = True
         self._rb_origin = None
         self._rb_item = QGraphicsRectItem(self)
         self._rb_item.setPen(QPen(QColor(255, 255, 0, 200), 1))
@@ -40,8 +41,20 @@ class SelectionViewBox(pg.ViewBox):
         self._rb_item.setZValue(1e9)
         self._rb_item.hide()
 
+    def enable_select_mode(self):
+        self.selection_enabled = True
+        self.setMouseMode(self.RectMode)
+
+    def enable_zoom_mode(self):
+        self.selection_enabled = False
+        self.setMouseMode(self.RectMode)
+
+    def enable_pan_mode(self):
+        self.selection_enabled = False
+        self.setMouseMode(self.PanMode)
+
     def mouseDragEvent(self, ev, axis=None):
-        if ev.button() == Qt.LeftButton:
+        if self.selection_enabled and ev.button() == Qt.LeftButton:
             ev.accept()
             if ev.isStart():
                 self._rb_origin = self.mapFromScene(ev.buttonDownScenePos())
@@ -83,7 +96,7 @@ class OseriesEditorDialog(QDialog):
         self._syncing_selection = False
 
         self.setWindowTitle(f"Edit Oseries: {oseries_name}")
-        self.resize(900, 700)
+        self.resize(1200, 700)
 
         self.setup_ui()
         self.populate_table()
@@ -120,6 +133,39 @@ class OseriesEditorDialog(QDialog):
     def setup_ui(self):
         layout = QVBoxLayout()
 
+        if HAS_PYQTGRAPH:
+            zoom_layout = QHBoxLayout()
+            self.btn_select = QPushButton("Select")
+            self.btn_zoom_in = QPushButton("+")
+            self.btn_pan = QPushButton("Pan")
+            self.btn_show_all = QPushButton("All")
+            self.btn_remove = QPushButton("Remove Selected")
+            self.btn_add = QPushButton("Add Observation")
+            self.btn_modify = QPushButton("Modify Selected")
+            self.btn_select.setCheckable(True)
+            self.btn_zoom_in.setCheckable(True)
+            self.btn_pan.setCheckable(True)
+            self.btn_select.setMaximumWidth(70)
+            self.btn_zoom_in.setMaximumWidth(60)
+            self.btn_pan.setMaximumWidth(60)
+            self.btn_show_all.setMaximumWidth(60)
+            self.btn_select.clicked.connect(self._enable_select_mode)
+            self.btn_zoom_in.clicked.connect(self._enable_rect_zoom)
+            self.btn_pan.clicked.connect(self._enable_pan_zoom)
+            self.btn_show_all.clicked.connect(self.fit_plot)
+            self.btn_remove.clicked.connect(self.remove_selected)
+            self.btn_add.clicked.connect(self.add_point)
+            self.btn_modify.clicked.connect(self.modify_selected)
+            zoom_layout.addWidget(self.btn_select)
+            zoom_layout.addWidget(self.btn_zoom_in)
+            zoom_layout.addWidget(self.btn_pan)
+            zoom_layout.addWidget(self.btn_show_all)
+            zoom_layout.addStretch()
+            zoom_layout.addWidget(self.btn_remove)
+            zoom_layout.addWidget(self.btn_add)
+            zoom_layout.addWidget(self.btn_modify)
+            layout.addLayout(zoom_layout)
+
         # Create splitter for plot and table
         splitter = QSplitter(Qt.Horizontal)
 
@@ -131,7 +177,7 @@ class OseriesEditorDialog(QDialog):
             )
             self.plot_widget.setBackground("w")
             self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
-            self.view_box.setMouseMode(pg.ViewBox.RectMode)
+            self.view_box.enable_select_mode()
 
             # Style axes
             for axis in ["bottom", "left"]:
@@ -149,33 +195,25 @@ class OseriesEditorDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["DateTime", "Value"])
+        self.table.verticalHeader().setVisible(False)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self.table.setColumnWidth(0, 200)
+        self.table.setColumnWidth(0, 120)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.ExtendedSelection)
         self.table.setSortingEnabled(True)
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
         splitter.addWidget(self.table)
 
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 1)
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 0)
+        splitter.setSizes([960, 240])
         layout.addWidget(splitter)
+
+        if HAS_PYQTGRAPH:
+            self._enable_select_mode()
 
         # Buttons
         button_layout = QHBoxLayout()
-
-        self.btn_remove = QPushButton("Remove Selected")
-        self.btn_remove.clicked.connect(self.remove_selected)
-        button_layout.addWidget(self.btn_remove)
-
-        self.btn_add = QPushButton("Add Point")
-        self.btn_add.clicked.connect(self.add_point)
-        button_layout.addWidget(self.btn_add)
-
-        self.btn_modify = QPushButton("Modify Selected")
-        self.btn_modify.clicked.connect(self.modify_selected)
-        button_layout.addWidget(self.btn_modify)
-
         button_layout.addStretch()
 
         self.btn_reset = QPushButton("Reset to Original")
@@ -204,7 +242,12 @@ class OseriesEditorDialog(QDialog):
         self.table.setRowCount(len(valid_data))
         for i, (timestamp, value) in enumerate(valid_data.items()):
             # DateTime
-            dt_item = QTableWidgetItem(str(timestamp))
+            if isinstance(timestamp, pd.Timestamp):
+                dt_text = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                dt_text = str(timestamp)
+            dt_item = QTableWidgetItem(dt_text)
+            dt_item.setData(Qt.UserRole, timestamp)
             dt_item.setFlags(dt_item.flags() & ~Qt.ItemIsEditable)
             self.table.setItem(i, 0, dt_item)
 
@@ -279,7 +322,8 @@ class OseriesEditorDialog(QDialog):
             return
         if self._syncing_selection:
             return
-        selected_times = set(str(ts) for ts in self._plot_index[self._selected_mask])
+        selected_times = set(self._plot_index[self._selected_mask])
+        first_selected_item = None
         self._syncing_selection = True
         self.table.blockSignals(True)
         try:
@@ -289,11 +333,17 @@ class OseriesEditorDialog(QDialog):
             selection_model = self.table.selectionModel()
             for row in range(self.table.rowCount()):
                 item = self.table.item(row, 0)
-                if item and item.text() in selected_times:
+                if item and item.data(Qt.UserRole) in selected_times:
+                    if first_selected_item is None:
+                        first_selected_item = item
                     index = self.table.model().index(row, 0)
                     selection_model.select(
                         index, QItemSelectionModel.Select | QItemSelectionModel.Rows
                     )
+            if first_selected_item is not None:
+                self.table.scrollToItem(
+                    first_selected_item, QTableWidget.PositionAtCenter
+                )
         finally:
             self.table.blockSignals(False)
             self._syncing_selection = False
@@ -308,12 +358,42 @@ class OseriesEditorDialog(QDialog):
         for row in selected_rows:
             item = self.table.item(row, 0)
             if item:
-                selected_times.add(item.text())
+                selected_times.add(item.data(Qt.UserRole))
 
         self._selected_mask = np.array(
-            [str(ts) in selected_times for ts in self._plot_index], dtype=bool
+            [ts in selected_times for ts in self._plot_index], dtype=bool
         )
         self._update_plot_selection()
+
+    def _enable_rect_zoom(self):
+        if not HAS_PYQTGRAPH:
+            return
+        self.view_box.enable_zoom_mode()
+        self.btn_select.setChecked(False)
+        self.btn_zoom_in.setChecked(True)
+        self.btn_pan.setChecked(False)
+
+    def _enable_pan_zoom(self):
+        if not HAS_PYQTGRAPH:
+            return
+        self.view_box.enable_pan_mode()
+        self.btn_select.setChecked(False)
+        self.btn_zoom_in.setChecked(False)
+        self.btn_pan.setChecked(True)
+
+    def _enable_select_mode(self):
+        if not HAS_PYQTGRAPH:
+            return
+        self.view_box.enable_select_mode()
+        self.btn_select.setChecked(True)
+        self.btn_zoom_in.setChecked(False)
+        self.btn_pan.setChecked(False)
+
+    def fit_plot(self):
+        if not HAS_PYQTGRAPH:
+            return
+        self.view_box.enableAutoRange(axis=self.view_box.XYAxes, enable=True)
+        self.view_box.autoRange(padding=0.02)
 
     def remove_selected(self):
         """Remove selected points from the series."""
@@ -335,8 +415,7 @@ class OseriesEditorDialog(QDialog):
 
         if reply == QMessageBox.Yes:
             for row in selected_rows:
-                timestamp_str = self.table.item(row, 0).text()
-                timestamp = pd.Timestamp(timestamp_str)
+                timestamp = self.table.item(row, 0).data(Qt.UserRole)
                 self.series_data.loc[timestamp] = np.nan
 
             self.populate_table()
@@ -344,12 +423,10 @@ class OseriesEditorDialog(QDialog):
 
     def add_point(self):
         """Add a new point to the series."""
-        # Get datetime
-        from qgis.PyQt.QtWidgets import QDateTimeEdit
-        from qgis.PyQt.QtCore import QDateTime
+        from qgis.PyQt.QtWidgets import QDateTimeEdit, QDoubleSpinBox
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Add Point")
+        dialog.setWindowTitle("Add Observation")
         layout = QVBoxLayout()
 
         # DateTime picker
@@ -358,6 +435,13 @@ class OseriesEditorDialog(QDialog):
         dt_edit.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
         dt_edit.setDateTime(QDateTime.currentDateTime())
         layout.addWidget(dt_edit)
+
+        # Value input
+        value_edit = QDoubleSpinBox()
+        value_edit.setDecimals(4)
+        value_edit.setRange(-1e12, 1e12)
+        value_edit.setValue(0.0)
+        layout.addWidget(value_edit)
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -382,16 +466,11 @@ class OseriesEditorDialog(QDialog):
                 second=qdt.time().second(),
             )
 
-            # Get value
-            value, ok = QInputDialog.getDouble(
-                self, "Add Point", "Enter value:", decimals=4
-            )
-
-            if ok:
-                self.series_data.loc[timestamp] = value
-                self.series_data = self.series_data.sort_index()
-                self.populate_table()
-                self.plot_data()
+            value = value_edit.value()
+            self.series_data.loc[timestamp] = value
+            self.series_data = self.series_data.sort_index()
+            self.populate_table()
+            self.plot_data()
 
     def modify_selected(self):
         """Modify the value of selected points."""
@@ -408,8 +487,9 @@ class OseriesEditorDialog(QDialog):
             return
 
         row = selected_rows[0]
-        timestamp_str = self.table.item(row, 0).text()
-        timestamp = pd.Timestamp(timestamp_str)
+        timestamp_item = self.table.item(row, 0)
+        timestamp = timestamp_item.data(Qt.UserRole)
+        timestamp_str = timestamp_item.text()
         current_value = float(self.table.item(row, 1).text())
 
         value, ok = QInputDialog.getDouble(
