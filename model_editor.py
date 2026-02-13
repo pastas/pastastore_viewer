@@ -8,9 +8,11 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import Qt
 import pandas as pd
+import numpy as np
 import pastastore as pst
 import pastas as ps
 import pyqtgraph as pg
+from pyqtgraph import DateAxisItem
 
 class ModelEditorDialog(QDialog):
     """Dialog to edit a Pastas model with advanced stressmodel configuration."""
@@ -37,9 +39,14 @@ class ModelEditorDialog(QDialog):
         self.setLayout(self.layout)
         
         # Plot Widget (Top)
-        self.plot_widget = pg.PlotWidget()
+        self.plot_widget = pg.PlotWidget(axisItems={'bottom': DateAxisItem()})
         self.plot_widget.setBackground('w')
         self.plot_widget.showGrid(x=True, y=True)
+        # Style axes to black
+        for axis in ['bottom', 'left']:
+            ax = self.plot_widget.getAxis(axis)
+            ax.setPen('k')
+            ax.setTextPen('k')
         self.layout.addWidget(self.plot_widget)
         
         # Top: General Settings
@@ -140,8 +147,6 @@ class ModelEditorDialog(QDialog):
         
         self.hbox_stresses.addWidget(self.group_detail, 2)
         
-        self.hbox_stresses.addWidget(self.group_detail, 2)
-        
         # Statistics
         self.lbl_stats = QLabel("Stats: E.V.P.: - | R2: -")
         self.layout.addWidget(self.lbl_stats)
@@ -198,23 +203,20 @@ class ModelEditorDialog(QDialog):
         
         # Plot Observations
         if hasattr(model, 'observations'):
-             obs = model.observations()
-             # Prepare data (handle NaNs and index)
-             if obs is not None and not obs.empty:
-                 x = obs.index.to_numpy(dtype=float) / 1e9 / 3600 / 24 # Convert ns to days? No, pyqtgraph handles timestamps differently usually?
-                 # Actually PlotDock used a helper _prepare_data. Let's reuse simple conversion or copy logic.
-                 # Let's assume standard timestamp plotting (epoch)
-                 x = obs.index.astype(int) / 1e9
-                 y = obs.values
-                 self.plot_widget.plot(x, y, pen=None, symbol='o', symbolSize=5, symbolBrush='k', name="Observations")
+            obs = model.observations()
+            if obs is not None and not obs.empty:
+                # Standard timestamp plotting (epoch)
+                x = obs.index.view(np.int64) // 10**9
+                y = obs.values
+                self.plot_widget.plot(x, y, pen=None, symbol='o', symbolSize=5, symbolBrush='k', name="Observations")
 
         # Plot Simulation
         try:
             sim = model.simulate()
             if sim is not None and not sim.empty:
-                 x = sim.index.astype(int) / 1e9
-                 y = sim.values
-                 self.plot_widget.plot(x, y, pen=pg.mkPen('r', width=2), name="Simulation")
+                x = sim.index.view(np.int64) // 10**9
+                y = sim.values
+                self.plot_widget.plot(x, y, pen=pg.mkPen('r', width=2), name="Simulation")
         except:
             pass
 
@@ -313,7 +315,6 @@ class ModelEditorDialog(QDialog):
         self.detail_input1.setVisible(True)
         self.detail_input2.setVisible(False)
         self.detail_input1_lbl.setVisible(True)
-        self.detail_input2_lbl.setVisible(False)
         self.detail_input2_lbl.setVisible(False)
         self.form_detail.labelForField(self.detail_rfunc).setVisible(True)
         self.detail_recharge.setVisible(False)
@@ -443,6 +444,7 @@ class ModelEditorDialog(QDialog):
                     if sm_type == 'StressModel':
                          if not s['inputs']: continue
                          ts = self.store.get_stresses(s['inputs'][0])
+                         sm = ps.StressModel(ts, rfunc=rfunc, name=name, up=s.get('up', True))
                          model.add_stressmodel(sm)
                          
                     elif sm_type == 'RechargeModel':

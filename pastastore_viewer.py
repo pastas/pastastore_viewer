@@ -35,9 +35,9 @@ except ImportError:
 
 from .main_dock import PastastoreMainDock
 from .plot_dock import PastastorePlotDock
-from .plot_dock import PastastorePlotDock
 from .settings_dialog import PastastoreSettingsDialog
 from .model_editor import ModelEditorDialog
+from .results_plot import ResultsPlotDialog
 
 class PastastoreViewer:
     """QGIS Plugin Implementation."""
@@ -107,9 +107,9 @@ class PastastoreViewer:
             self.dock_widget.item_selected.connect(self.on_item_selected)
             self.dock_widget.settings_requested.connect(self.open_settings)
             self.dock_widget.tab_changed.connect(self.on_tab_changed)
-            self.dock_widget.tab_changed.connect(self.on_tab_changed)
             self.dock_widget.delete_model_requested.connect(self.delete_models)
             self.dock_widget.edit_model_requested.connect(self.open_model_editor)
+            self.dock_widget.results_requested.connect(self.open_results_plot)
             
             self.dock_widget.restore_state_from_project()
         
@@ -531,4 +531,23 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
             self.iface.messageBar().pushMessage("Error", f"Failed to edit model: {str(e)}", level=2)
+            print(traceback.format_exc())
+
+    def open_results_plot(self, model_name):
+        if not self.store: return
+        
+        try:
+            ml = self.store.get_models(model_name)
+            dlg = ResultsPlotDialog(ml, self.iface.mainWindow())
+            dlg.show() 
+            
+            if not hasattr(self, '_result_plots'):
+                self._result_plots = []
+            self._result_plots.append(dlg)
+            
+            # Cleanup when closed
+            dlg.finished.connect(lambda: self._result_plots.remove(dlg) if dlg in self._result_plots else None)
+        except Exception as e:
+            import traceback
+            self.iface.messageBar().pushMessage("Error", f"Failed to show results: {str(e)}", level=2)
             print(traceback.format_exc())
