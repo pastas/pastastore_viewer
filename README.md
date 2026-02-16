@@ -9,15 +9,41 @@ This plugin allows you to visualize time series and models stored in a `pastasto
 - Configurable coordinate column names (default 'x' and 'y').
 
 ## Installation
-1. Ensure you have `pastastore` and `pyqtgraph` installed in your QGIS Python environment.
-   - You can usually do this via the QGIS Python Console:
-     ```python
-     import subprocess
-     subprocess.check_call(['pip', 'install', 'pastastore', 'pyqtgraph'])
-     ```
-2. Copy this folder into your QGIS plugins directory:
+
+### Dependencies
+This plugin requires `pastastore`, `pastas`, and `pyqtgraph`. You have two options:
+
+#### Option 1: Auto-install at runtime (recommended for end users)
+The plugin will automatically prompt to download and install missing dependencies on first load. 
+- **Requires:** QGIS Python with `pip` available (install `python3-pip` via OSGeo4W Setup if needed)
+- **Installation location:** Plugin's local `dependencies/` folder (isolated from other plugins)
+- **Offline:** Will fail with a clear message if no internet connection
+
+#### Option 2: Pre-bundle dependencies (recommended for offline deployment)
+Bundle dependencies inside the plugin so users do not need internet access:
+
+1. From the OSGeo4W Shell (or using the Python interpreter bundled with QGIS):
+   ```bash
+   cd path/to/pastastore_viewer
+   python bundle_deps.py
+   ```
+   This creates a `dependencies/` folder with `pastastore`, `pastas`, and `pyqtgraph` (without transitive dependencies—QGIS provides `numpy`, `pandas`, etc.).
+
+2. Alternatively, install manually:
+   ```bash
+   python -m pip install --target dependencies --no-deps pastastore pastas pyqtgraph
+   ```
+
+### Plugin Installation
+1. Copy this folder into your QGIS plugins directory:
    - Windows: `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\pastastore_viewer`
-3. Restart QGIS or use the "Plugin Reloader" plugin to load it.
+2. Restart QGIS or use the "Plugin Reloader" plugin to load it.
+
+### Development
+For local development in a virtual environment, use [requirements.txt](requirements.txt):
+```bash
+pip install -r requirements.txt
+```
 
 ## Usage
 1. Click the **Load Pastastore** icon in the toolbar.

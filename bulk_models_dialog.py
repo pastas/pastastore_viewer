@@ -21,7 +21,7 @@ class BulkModelsDialog(QDialog):
         self.store = store
 
         self.setWindowTitle("Create Models")
-        self.resize(420, 240)
+        self.resize(420, 270)
 
         layout = QVBoxLayout()
         self.setLayout(layout)
@@ -35,6 +35,10 @@ class BulkModelsDialog(QDialog):
         self.le_suffix = QLineEdit()
         self.le_suffix.setPlaceholderText("Optional suffix (e.g. _v2)")
         form.addRow("Model name suffix:", self.le_suffix)
+
+        self.chk_overwrite = QCheckBox("Overwrite existing models")
+        self.chk_overwrite.setChecked(False)
+        form.addRow("", self.chk_overwrite)
 
         self.chk_recharge = QCheckBox("Add recharge component")
         self.chk_recharge.setChecked(True)
@@ -119,4 +123,5 @@ class BulkModelsDialog(QDialog):
             "solve": solve,
             "tmin": tmin,
             "tmax": tmax,
+            "overwrite": self.chk_overwrite.isChecked(),
         }

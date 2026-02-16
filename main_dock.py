@@ -308,18 +308,51 @@ class PastastoreMainDock(QDockWidget):
         if hasattr(store, "model_names") and len(store.model_names) > 0:
             self.list_models.addItems(store.model_names)
 
-    def select_items_in_list(self, category, names):
+    def get_selected_names(self, category):
+        if category == "oseries":
+            items = self.table_oseries.selectedItems()
+            return sorted(
+                list(
+                    set(
+                        [
+                            self.table_oseries.item(item.row(), 0).text()
+                            for item in items
+                        ]
+                    )
+                )
+            )
+        if category == "stresses":
+            items = self.table_stresses.selectedItems()
+            return sorted(
+                list(
+                    set(
+                        [
+                            self.table_stresses.item(item.row(), 0).text()
+                            for item in items
+                        ]
+                    )
+                )
+            )
+        if category == "models":
+            items = self.list_models.selectedItems()
+            return [item.text() for item in items]
+        return []
+
+    def select_items_in_list(self, category, names, switch_tab=True, trigger_signal=True):
         """Programmatically select items in the corresponding list."""
         list_widget = None
         if category == "oseries":
             list_widget = self.table_oseries
-            self.tabs.setCurrentIndex(0)
+            if switch_tab:
+                self.tabs.setCurrentIndex(0)
         elif category == "stresses":
             list_widget = self.table_stresses
-            self.tabs.setCurrentIndex(1)
+            if switch_tab:
+                self.tabs.setCurrentIndex(1)
         elif category == "models":
             list_widget = self.list_models
-            self.tabs.setCurrentIndex(2)
+            if switch_tab:
+                self.tabs.setCurrentIndex(2)
 
         if list_widget:
             self.is_updating_selection = True
@@ -362,8 +395,9 @@ class PastastoreMainDock(QDockWidget):
                             list_widget.scrollToItem(selected[0])
             finally:
                 self.is_updating_selection = False
-                # Trigger selection once
-                self._on_selection_changed(category)
+                if trigger_signal:
+                    # Trigger selection once
+                    self._on_selection_changed(category)
 
     def _on_selection_changed(self, category):
         if self.is_updating_selection:

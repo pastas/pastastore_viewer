@@ -269,7 +269,9 @@ class PastastoreViewer:
     def load_pastastore(self, filename=None):
         if not HAS_PASTASTORE:
             QMessageBox.critical(
-                self.iface.mainWindow(), "Error", "pastastore library not installed."
+                self.iface.mainWindow(),
+                "Error",
+                "pastastore library not available. Bundle it in the plugin 'dependencies' folder or install it in the QGIS Python environment.",
             )
             return
 
@@ -1126,7 +1128,9 @@ class PastastoreViewer:
             return
         if not HAS_PASTAS:
             QMessageBox.critical(
-                self.iface.mainWindow(), "Error", "pastas library not installed."
+                self.iface.mainWindow(),
+                "Error",
+                "pastas library not available. Bundle it in the plugin 'dependencies' folder or install it in the QGIS Python environment.",
             )
             return
 
@@ -1181,7 +1185,9 @@ class PastastoreViewer:
             return
         if not HAS_PASTAS:
             QMessageBox.critical(
-                self.iface.mainWindow(), "Error", "pastas library not installed."
+                self.iface.mainWindow(),
+                "Error",
+                "pastas library not available. Bundle it in the plugin 'dependencies' folder or install it in the QGIS Python environment.",
             )
             return
         if not oseries_names:
@@ -1197,16 +1203,38 @@ class PastastoreViewer:
         solve = options["solve"]
         tmin = options["tmin"]
         tmax = options["tmax"]
+        overwrite = options["overwrite"]
 
         existing_models = set(self.store.model_names or [])
+        oseries_to_create = oseries_names
+        skipped_models = []
+        if not overwrite:
+            oseries_to_create = []
+            for oseries_name in oseries_names:
+                modelname = f"{oseries_name}{suffix}" if suffix else oseries_name
+                if modelname in existing_models:
+                    skipped_models.append(modelname)
+                    continue
+                oseries_to_create.append(oseries_name)
+
+        if not oseries_to_create:
+            if skipped_models:
+                self.iface.messageBar().pushMessage(
+                    "Info",
+                    "All selected models already exist. Nothing created.",
+                    level=1,
+                )
+            return
+
         failed = self.store.create_models_bulk(
-            oseries_names,
+            oseries_to_create,
             suffix=suffix,
             add_recharge=add_recharge,
             ignore_errors=True,
             solve=solve,
             tmin=tmin,
             tmax=tmax,
+            progressbar=False,
         )
 
         created = sorted(list(set(self.store.model_names or []) - existing_models))
@@ -1222,10 +1250,18 @@ class PastastoreViewer:
             print(f"Failed to create models for: {', '.join(failed)}")
 
         if self.dock_widget:
+            selected_oseries = self.dock_widget.get_selected_names("oseries")
             self.dock_widget.populate_lists(self.store)
             self.dock_widget.tabs.setCurrentIndex(2)
             if created:
                 self.dock_widget.select_items_in_list("models", created)
+            if selected_oseries:
+                self.dock_widget.select_items_in_list(
+                    "oseries",
+                    selected_oseries,
+                    switch_tab=False,
+                    trigger_signal=False,
+                )
 
         self.load_layers_from_store()
 
@@ -1233,6 +1269,12 @@ class PastastoreViewer:
         if solve and created:
             msg += " and solved"
         self.iface.messageBar().pushMessage("Success", msg, level=0)
+        if skipped_models:
+            self.iface.messageBar().pushMessage(
+                "Info",
+                f"Skipped {len(skipped_models)} existing model(s).",
+                level=1,
+            )
 
     def open_results_plot(self, model_name):
         if not self.store:

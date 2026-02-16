@@ -704,14 +704,16 @@ class ModelEditorDialog(QDialog):
         except:
             self.lbl_stats.setText("Stats: Not solved")
 
-    def solve_model(self):
-        busy = QProgressDialog("Solving model...", None, 0, 0, self)
-        busy.setWindowTitle("Please wait")
-        busy.setWindowModality(Qt.ApplicationModal)
-        busy.setMinimumDuration(0)
-        busy.setCancelButton(None)
-        busy.show()
-        QApplication.processEvents()
+    def _apply_model_changes(self, solve=False, show_progress=False):
+        busy = None
+        if show_progress:
+            busy = QProgressDialog("Solving model...", None, 0, 0, self)
+            busy.setWindowTitle("Please wait")
+            busy.setWindowModality(Qt.ApplicationModal)
+            busy.setMinimumDuration(0)
+            busy.setCancelButton(None)
+            busy.show()
+            QApplication.processEvents()
         try:
             model = self.original_model
 
@@ -719,6 +721,9 @@ class ModelEditorDialog(QDialog):
             tmin = self.de_tmin.date().toString("yyyy-MM-dd")
             tmax = self.de_tmax.date().toString("yyyy-MM-dd")
             freq = self.cbo_freq.currentText()
+            model.settings["tmin"] = tmin
+            model.settings["tmax"] = tmax
+            model.settings["freq"] = freq
 
             # Reconstruct Stressmodels
             # We must remove all old ones and add new ones based on settings
@@ -835,7 +840,7 @@ class ModelEditorDialog(QDialog):
                         val = vary_item.text().lower() == "true"
                         model.set_parameter(name=pname, vary=val)
 
-                except Exception as e:
+                except Exception:
                     # Parameter might not be in the new model structure
                     pass
 
@@ -854,23 +859,31 @@ class ModelEditorDialog(QDialog):
                 if model.transform is not None:
                     model.del_transform()
 
-            # Solve
-            model.solve(freq=freq, tmin=tmin, tmax=tmax, report=False)
+            if solve:
+                model.solve(freq=freq, tmin=tmin, tmax=tmax, report=False)
+                self.update_stats_label(model)
+                self.update_plot(model)
+                self.update_parameters_table(model)
+
             self.new_model = model
-            self.update_stats_label(model)
-            self.update_plot(model)
-            self.update_parameters_table(model)
+            return model
 
         except Exception as e:
-            QMessageBox.critical(self, "Solve Error", str(e))
+            title = "Solve Error" if solve else "Model Update Error"
+            QMessageBox.critical(self, title, str(e))
             self.lbl_stats.setText(f"Error: {str(e)}")
+            return None
         finally:
-            busy.close()
+            if busy is not None:
+                busy.close()
+
+    def solve_model(self):
+        self._apply_model_changes(solve=True, show_progress=True)
 
     def get_model_data(self):
         name = self.le_name.text()
         if self.new_model is None:
-            self.solve_model()
+            self._apply_model_changes(solve=False, show_progress=False)
 
         if self.new_model:
             self.new_model.name = name
