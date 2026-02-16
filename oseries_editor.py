@@ -13,7 +13,7 @@ from qgis.PyQt.QtWidgets import (
     QInputDialog,
     QSplitter,
 )
-from qgis.PyQt.QtCore import Qt, QDateTime, QRectF, QSizeF
+from qgis.PyQt.QtCore import Qt, QDateTime, QRectF
 from qgis.PyQt.QtGui import QColor, QPen
 import pandas as pd
 import numpy as np

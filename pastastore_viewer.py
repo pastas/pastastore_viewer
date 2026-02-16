@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 
 from qgis.PyQt.QtCore import (
-    QSettings,
-    QTranslator,
-    qVersion,
     QCoreApplication,
     Qt,
     QVariant,
@@ -12,9 +9,9 @@ from qgis.PyQt.QtWidgets import (
     QAction,
     QFileDialog,
     QMessageBox,
-    QDockWidget,
     QProgressDialog,
     QApplication,
+    QInputDialog,
 )
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
@@ -24,8 +21,6 @@ from qgis.core import (
     QgsFeature,
     QgsGeometry,
     QgsPointXY,
-    QgsFields,
-    QgsWkbTypes,
     QgsLayerTreeLayer,
     QgsFeatureRequest,
     QgsCoordinateReferenceSystem,
@@ -42,6 +37,13 @@ try:
     HAS_PASTASTORE = True
 except ImportError:
     HAS_PASTASTORE = False
+
+try:
+    import pastas as ps
+
+    HAS_PASTAS = True
+except ImportError:
+    HAS_PASTAS = False
 
 try:
     import pyqtgraph as pg
@@ -71,6 +73,7 @@ class PastastoreViewer:
         self.plot_dock = None
         self.action = None
         self.is_updating_selection = False
+        self.store_modified = False
 
     def tr(self, message):
         return QCoreApplication.translate("PastastoreViewer", message)
@@ -97,6 +100,7 @@ class PastastoreViewer:
         # Connect project signals for automatic restoration
         QgsProject.instance().readProject.connect(self.on_project_read)
         QgsProject.instance().cleared.connect(self.on_project_new)
+        QgsProject.instance().projectSaved.connect(self.on_project_write)
 
         # Check if project is already loaded (e.g. plugin reload)
         if QgsProject.instance().fileName():
@@ -116,6 +120,7 @@ class PastastoreViewer:
             )
             QgsProject.instance().readProject.disconnect(self.on_project_read)
             QgsProject.instance().cleared.disconnect(self.on_project_new)
+            QgsProject.instance().projectSaved.disconnect(self.on_project_write)
         except:
             pass
 
@@ -129,10 +134,13 @@ class PastastoreViewer:
 
             # Connect dock signals
             self.dock_widget.load_requested.connect(self.load_pastastore)
+            self.dock_widget.save_requested.connect(self.save_pastastore)
             self.dock_widget.item_selected.connect(self.on_item_selected)
             self.dock_widget.settings_requested.connect(self.open_settings)
             self.dock_widget.tab_changed.connect(self.on_tab_changed)
             self.dock_widget.delete_model_requested.connect(self.delete_models)
+            self.dock_widget.delete_oseries_requested.connect(self.delete_oseries)
+            self.dock_widget.delete_stresses_requested.connect(self.delete_stresses)
             self.dock_widget.edit_model_requested.connect(self.open_model_editor)
             self.dock_widget.results_requested.connect(self.open_results_plot)
             self.dock_widget.select_models_for_oseries_requested.connect(
@@ -142,6 +150,9 @@ class PastastoreViewer:
                 self.select_models_for_stresses
             )
             self.dock_widget.edit_oseries_requested.connect(self.open_oseries_editor)
+            self.dock_widget.create_model_requested.connect(
+                self.create_model_from_oseries
+            )
 
         if not self.plot_dock:
             self.plot_dock = PastastorePlotDock(self.iface.mainWindow())
@@ -200,6 +211,7 @@ class PastastoreViewer:
     def on_project_new(self):
         """Called when a new project is created."""
         self.store = None
+        self.store_modified = False
         if self.dock_widget:
             self.dock_widget.populate_lists(None)
             self.dock_widget.set_filename(None)
@@ -215,6 +227,19 @@ class PastastoreViewer:
             QgsProject.instance().writeEntry(scope, "last_selected_names", "[]")
         except Exception:
             pass
+
+    def on_project_write(self):
+        """Called when the project is being saved."""
+        if self.store and self.store_modified:
+            reply = QMessageBox.question(
+                self.iface.mainWindow(),
+                "Save Pastastore",
+                "The pastastore has been modified. Do you want to save it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes,
+            )
+            if reply == QMessageBox.Yes:
+                self.save_pastastore()
 
     def open_settings(self):
         if not self.dock_widget:
@@ -253,9 +278,86 @@ class PastastoreViewer:
             )
 
         if filename:
-            self._load_from_path(filename)
+            if self.store:
+                choice = QMessageBox(self.iface.mainWindow())
+                choice.setWindowTitle("Pastastore already loaded")
+                choice.setText(
+                    "A pastastore is already loaded. Do you want to replace it or merge the new data?"
+                )
+                replace_btn = choice.addButton("Replace", QMessageBox.AcceptRole)
+                merge_btn = choice.addButton("Merge", QMessageBox.ActionRole)
+                choice.addButton(QMessageBox.Cancel)
+                choice.exec_()
+
+                if choice.clickedButton() == merge_btn:
+                    self._merge_from_path(filename)
+                elif choice.clickedButton() == replace_btn:
+                    self._load_from_path(filename)
+                else:
+                    return
+            else:
+                self._load_from_path(filename)
+
             if self.dock_widget:
                 self.dock_widget.save_state_to_project()
+
+    def save_pastastore(self):
+        if not self.store:
+            self.iface.messageBar().pushMessage(
+                "No Store", "Load a pastastore before saving.", level=1
+            )
+            return
+
+        default_path = ""
+        if self.dock_widget and self.dock_widget.store_path:
+            default_path = self.dock_widget.store_path
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self.iface.mainWindow(),
+            "Save Pastastore Zip File",
+            default_path,
+            "Zip Files (*.zip);;All Files (*)",
+        )
+
+        if not filename:
+            return
+
+        try:
+            busy = QProgressDialog(
+                "Saving pastastore...", None, 0, 0, self.iface.mainWindow()
+            )
+            busy.setWindowTitle("Please wait")
+            busy.setWindowModality(Qt.ApplicationModal)
+            busy.setMinimumDuration(0)
+            busy.setCancelButton(None)
+            busy.show()
+            QApplication.processEvents()
+
+            if hasattr(self.store, "to_zip"):
+                self.store.to_zip(filename)
+            elif hasattr(self.store, "to_file"):
+                self.store.to_file(filename)
+            else:
+                raise AttributeError("Pastastore does not support saving to zip.")
+
+            if self.dock_widget:
+                self.dock_widget.set_filename(filename)
+                self.dock_widget.save_state_to_project()
+
+            self.store_modified = False
+            self.iface.messageBar().pushMessage("Success", f"Saved {filename}", level=0)
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to save pastastore: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+        finally:
+            try:
+                busy.close()
+            except Exception:
+                pass
 
     def _load_from_path(self, filename):
         if filename:
@@ -284,6 +386,7 @@ class PastastoreViewer:
 
             try:
                 self.store = pst.PastaStore.from_zip(filename)
+                self.store_modified = False
                 self.load_layers_from_store()
                 if self.dock_widget:
                     self.dock_widget.populate_lists(self.store)
@@ -305,6 +408,157 @@ class PastastoreViewer:
                 busy.close()
                 sys.stdout = old_stdout
                 sys.stderr = old_stderr
+
+    def _merge_from_path(self, filename):
+        if not self.store or not filename:
+            return
+
+        import sys
+        import io
+
+        busy = QProgressDialog(
+            "Merging pastastore...", None, 0, 0, self.iface.mainWindow()
+        )
+        busy.setWindowTitle("Please wait")
+        busy.setWindowModality(Qt.ApplicationModal)
+        busy.setMinimumDuration(0)
+        busy.setCancelButton(None)
+        busy.show()
+        QApplication.processEvents()
+
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        if sys.stdout is None:
+            sys.stdout = io.StringIO()
+        if sys.stderr is None:
+            sys.stderr = io.StringIO()
+
+        import traceback
+
+        try:
+            source_store = pst.PastaStore.from_zip(filename)
+            counts = self._merge_store(source_store)
+
+            self.load_layers_from_store()
+            if self.dock_widget:
+                self.dock_widget.populate_lists(self.store)
+                self._set_active_layer_for_current_tab()
+
+            msg = (
+                f"Merged {filename} (oseries: {counts['oseries']}, "
+                f"stresses: {counts['stresses']}, models: {counts['models']})"
+            )
+            self.store_modified = True
+            self.iface.messageBar().pushMessage("Success", msg, level=0)
+        except Exception:
+            err_msg = traceback.format_exc()
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Pastastore Merge Error",
+                f"Failed to merge store:\n\n{err_msg}",
+            )
+        finally:
+            busy.close()
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+    def _merge_store(self, source_store):
+        counts = {"oseries": 0, "stresses": 0, "models": 0}
+
+        if hasattr(source_store, "oseries") and len(source_store.oseries.index) > 0:
+            for name in source_store.oseries.index:
+                series_data = source_store.get_oseries(name)
+                metadata = source_store.oseries.loc[name].to_dict()
+                if self._add_oseries_to_store(series_data, name, metadata):
+                    counts["oseries"] += 1
+
+        if hasattr(source_store, "stresses") and len(source_store.stresses.index) > 0:
+            for name in source_store.stresses.index:
+                series_data = source_store.get_stresses(name)
+                metadata = source_store.stresses.loc[name].to_dict()
+                if self._add_stress_to_store(series_data, name, metadata):
+                    counts["stresses"] += 1
+
+        if hasattr(source_store, "model_names") and len(source_store.model_names) > 0:
+            for name in source_store.model_names:
+                model = source_store.get_models(name)
+                self.store.add_model(model, overwrite=True)
+                counts["models"] += 1
+
+        return counts
+
+    def _add_oseries_to_store(self, series_data, name, metadata):
+        try:
+            self.store.add_oseries(
+                series_data, name=name, metadata=metadata, overwrite=True
+            )
+            return True
+        except TypeError:
+            self.store.add_oseries(series_data, name=name, metadata=metadata)
+            return True
+
+    def _add_stress_to_store(self, series_data, name, metadata):
+        kind = self._get_stress_kind(metadata)
+        if hasattr(self.store, "add_stresses"):
+            try:
+                self.store.add_stresses(
+                    series_data, name=name, metadata=metadata, overwrite=True
+                )
+                return True
+            except TypeError:
+                if kind is not None:
+                    try:
+                        self.store.add_stresses(
+                            series_data,
+                            name=name,
+                            kind=kind,
+                            metadata=metadata,
+                            overwrite=True,
+                        )
+                        return True
+                    except TypeError:
+                        self.store.add_stresses(
+                            series_data, name=name, kind=kind, metadata=metadata
+                        )
+                        return True
+                self.store.add_stresses(series_data, name=name, metadata=metadata)
+                return True
+
+        if hasattr(self.store, "add_stress"):
+            try:
+                self.store.add_stress(
+                    series_data, name=name, metadata=metadata, overwrite=True
+                )
+                return True
+            except TypeError:
+                if kind is not None:
+                    try:
+                        self.store.add_stress(
+                            series_data,
+                            name=name,
+                            kind=kind,
+                            metadata=metadata,
+                            overwrite=True,
+                        )
+                        return True
+                    except TypeError:
+                        self.store.add_stress(
+                            series_data, name=name, kind=kind, metadata=metadata
+                        )
+                        return True
+                self.store.add_stress(series_data, name=name, metadata=metadata)
+                return True
+
+        return False
+
+    def _get_stress_kind(self, metadata):
+        if not metadata:
+            return None
+        if "kind" in metadata and metadata["kind"]:
+            return metadata["kind"]
+        if "type" in metadata and metadata["type"]:
+            return metadata["type"]
+        return "stress"
 
     def load_layers_from_store(self):
         if not self.store:
@@ -562,7 +816,6 @@ class PastastoreViewer:
         names = [f["name"] for f in selected_feats]
         if self.dock_widget:
             self.dock_widget.select_items_in_list(pst_type, names)
-        self.plot_item(pst_type, names)
 
     def plot_item(self, category, names):
         if not self.store:
@@ -574,6 +827,20 @@ class PastastoreViewer:
 
         if isinstance(names, str):
             names = [names]
+
+        # Ask user if they want to plot more than 10 oseries/stresses
+        if len(names) > 10 and category in ["oseries", "stresses"]:
+            reply = QMessageBox.question(
+                self.iface.mainWindow(),
+                "Many Items Selected",
+                f"You have selected {len(names)} {category}. Do you want to plot them?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply == QMessageBox.No:
+                if self.plot_dock:
+                    self.plot_dock.clear_plot(category=category)
+                return
 
         try:
             if category == "oseries":
@@ -647,6 +914,7 @@ class PastastoreViewer:
                 if self.plot_dock:
                     self.plot_dock.clear_plot()
 
+                self.store_modified = True
                 self.iface.messageBar().pushMessage(
                     "Success", f"Deleted {len(names)} model(s)", level=0
                 )
@@ -659,6 +927,105 @@ class PastastoreViewer:
                 )
                 print(traceback.format_exc())
 
+    def delete_oseries(self, names):
+        if not self.store:
+            return
+
+        # Show names only if 10 or fewer
+        if len(names) > 10:
+            message = f"Are you sure you want to delete {len(names)} oseries?"
+        else:
+            message = f"Are you sure you want to delete {len(names)} oseries?\n\n{', '.join(names)}"
+
+        reply = QMessageBox.question(
+            self.iface.mainWindow(),
+            "Confirm Deletion",
+            message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                # Delete from store
+                for name in names:
+                    self.store.del_oseries(name)
+
+                # Reload layers
+                self.load_layers_from_store()
+
+                # Refresh lists
+                if self.dock_widget:
+                    self.dock_widget.populate_lists(self.store)
+
+                # Clear plot if it was showing a deleted oseries
+                if self.plot_dock:
+                    self.plot_dock.clear_plot()
+
+                self.store_modified = True
+                self.iface.messageBar().pushMessage(
+                    "Success", f"Deleted {len(names)} oseries", level=0
+                )
+
+            except Exception as e:
+                import traceback
+
+                self.iface.messageBar().pushMessage(
+                    "Error", f"Failed to delete oseries: {str(e)}", level=2
+                )
+                print(traceback.format_exc())
+
+    def delete_stresses(self, names):
+        if not self.store:
+            return
+
+        # Show names only if 10 or fewer
+        if len(names) > 10:
+            message = f"Are you sure you want to delete {len(names)} stresses?"
+        else:
+            message = f"Are you sure you want to delete {len(names)} stresses?\n\n{', '.join(names)}"
+
+        reply = QMessageBox.question(
+            self.iface.mainWindow(),
+            "Confirm Deletion",
+            message,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                # Delete from store
+                for name in names:
+                    if hasattr(self.store, "del_stresses"):
+                        self.store.del_stresses(name)
+                    elif hasattr(self.store, "del_stress"):
+                        self.store.del_stress(name)
+
+                # Reload layers
+                self.load_layers_from_store()
+
+                # Refresh lists
+                if self.dock_widget:
+                    self.dock_widget.populate_lists(self.store)
+
+                # Clear plot if it was showing a deleted stress
+                if self.plot_dock:
+                    self.plot_dock.clear_plot()
+
+                self.store_modified = True
+                self.iface.messageBar().pushMessage(
+                    "Success", f"Deleted {len(names)} stresses", level=0
+                )
+
+            except Exception as e:
+                import traceback
+
+                self.iface.messageBar().pushMessage(
+                    "Error", f"Failed to delete stresses: {str(e)}", level=2
+                )
+                print(traceback.format_exc())
+
     def open_model_editor(self, model_name):
         if not self.store:
             return
@@ -667,33 +1034,60 @@ class PastastoreViewer:
             # Get the model (create a copy/new instance to be safe)
             ml = self.store.get_models(model_name)
 
-            dlg = ModelEditorDialog(ml, self.store, self.iface.mainWindow())
-            if dlg.exec_():
+            while True:
+                dlg = ModelEditorDialog(ml, self.store, self.iface.mainWindow())
+                if not dlg.exec_():
+                    # User closed the editor without saving
+                    return
+
                 new_model, new_name = dlg.get_model_data()
 
-                # Save to store
-                # If name changed, we might want to delete the old one?
-                # User said "optionally with a new name", implying Save As behavior.
-                # If name is different, we add as new.
-                # If name is same, we overwrite.
+                existing = set(self.store.model_names or [])
+                if new_name in existing:
+                    overwrite = QMessageBox.question(
+                        self.iface.mainWindow(),
+                        "Model Exists",
+                        f"A model named '{new_name}' already exists. Overwrite it?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No,
+                    )
 
-                # Check if name exists if different
-                if new_name != model_name:
-                    # If user wants to rename, we probably should keep it simple and just add new model.
-                    # Or ask? Let's just add it.
-                    pass
-                else:
-                    # Overwrite: remove old one first?
-                    # pastastore.add_model with overwrite=True usually handles it?
-                    # But add_model adds a *new* model structure usually.
-                    # Here we have a pastas Model object.
-                    pass
+                    if overwrite == QMessageBox.No:
+                        # Ask for new name
+                        rename_cancelled = False
+                        while True:
+                            new_name, ok = QInputDialog.getText(
+                                self.iface.mainWindow(),
+                                "Rename Model",
+                                "New model name:",
+                                text=new_name,
+                            )
+                            if not ok:
+                                # User cancelled rename - go back to editor
+                                rename_cancelled = True
+                                break
+                            new_name = new_name.strip()
+                            if not new_name:
+                                continue
+                            if new_name in existing:
+                                QMessageBox.warning(
+                                    self.iface.mainWindow(),
+                                    "Name Exists",
+                                    f"A model named '{new_name}' already exists."
+                                    " Please choose another name.",
+                                )
+                                continue
+                            break
+
+                        if rename_cancelled:
+                            # Update the model with current state and re-open editor
+                            ml = new_model
+                            continue
+
+                        new_model.name = new_name
 
                 self.store.add_model(new_model, overwrite=True)
-
-                # If name changed and user wanted to RENAME, we would delete old one.
-                # But "Save with new name" usually implies keeping old one?
-                # Let's assume "Save As" behavior (keep old) unless name is same.
+                self.store_modified = True
 
                 self.iface.messageBar().pushMessage(
                     "Success", f"Saved model: {new_name}", level=0
@@ -702,16 +1096,77 @@ class PastastoreViewer:
                 # Update UI
                 if self.dock_widget:
                     self.dock_widget.populate_lists(self.store)
+                    # Switch to models tab and select the saved model
+                    self.dock_widget.tabs.setCurrentIndex(2)
+                    self.dock_widget.select_items_in_list("models", [new_name])
 
                 # Reload layers to reflect changes (e.g. if model results changed)
                 # This might be heavy if many models, but safe.
                 self.load_layers_from_store()
+                
+                # Successfully saved, exit the loop
+                break
 
         except Exception as e:
             import traceback
 
             self.iface.messageBar().pushMessage(
                 "Error", f"Failed to edit model: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def create_model_from_oseries(self, oseries_name):
+        if not self.store:
+            return
+        if not HAS_PASTAS:
+            QMessageBox.critical(
+                self.iface.mainWindow(), "Error", "pastas library not installed."
+            )
+            return
+
+        try:
+            model_name = oseries_name
+            existing = set(self.store.model_names or [])
+            if model_name in existing:
+                suffix = 2
+                while f"{model_name}_{suffix}" in existing:
+                    suffix += 1
+                model_name = f"{model_name}_{suffix}"
+
+            add_recharge = False
+            # if there are stresses, with kind "prec" or "evap", we can offer to add a recharge component
+            if len(self.store.stresses.index) > 0:
+                if (
+                    "prec" in self.store.stresses["kind"].values
+                    and "evap" in self.store.stresses["kind"].values
+                ):
+                    add_recharge = True
+            model = self.store.create_model(
+                oseries_name, modelname=model_name, add_recharge=add_recharge
+            )
+            dlg = ModelEditorDialog(model, self.store, self.iface.mainWindow())
+            if dlg.exec_():
+                new_model, new_name = dlg.get_model_data()
+                self.store.add_model(new_model, overwrite=True)
+                self.store_modified = True
+
+                self.iface.messageBar().pushMessage(
+                    "Success", f"Created model: {new_name}", level=0
+                )
+
+                if self.dock_widget:
+                    self.dock_widget.populate_lists(self.store)
+                    # Switch to models tab and select the created model
+                    self.dock_widget.tabs.setCurrentIndex(2)
+                    self.dock_widget.select_items_in_list("models", [new_name])
+
+                self.load_layers_from_store()
+
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to create model: {str(e)}", level=2
             )
             print(traceback.format_exc())
 
@@ -910,6 +1365,7 @@ class PastastoreViewer:
                 self.store.add_oseries(
                     modified_series, name=oseries_name, metadata=metadata
                 )
+                self.store_modified = True
 
                 self.iface.messageBar().pushMessage(
                     "Success", f"Updated oseries: {oseries_name}", level=0

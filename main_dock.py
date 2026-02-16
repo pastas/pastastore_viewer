@@ -16,13 +16,17 @@ class PastastoreMainDock(QDockWidget):
     load_requested = pyqtSignal(str) # path (optional)
     item_selected = pyqtSignal(str, list) # category, names (list)
     settings_requested = pyqtSignal()
+    save_requested = pyqtSignal()
     tab_changed = pyqtSignal(str)
     delete_model_requested = pyqtSignal(list) # names (list)
+    delete_oseries_requested = pyqtSignal(list) # names (list)
+    delete_stresses_requested = pyqtSignal(list) # names (list)
     edit_model_requested = pyqtSignal(str) # model name
     results_requested = pyqtSignal(str) # model name
     select_models_for_oseries_requested = pyqtSignal(list) # oseries names
     select_models_for_stresses_requested = pyqtSignal(list) # stresses names
     edit_oseries_requested = pyqtSignal(str) # oseries name
+    create_model_requested = pyqtSignal(str) # oseries name
 
 
     def __init__(self, parent=None):
@@ -56,6 +60,11 @@ class PastastoreMainDock(QDockWidget):
         self.btn_load = QPushButton("Load Pastastore Zip")
         self.btn_load.clicked.connect(lambda: self.load_requested.emit(""))
         top_layout.addWidget(self.btn_load)
+
+        # Save Button
+        self.btn_save = QPushButton("Save Pastastore Zip")
+        self.btn_save.clicked.connect(lambda: self.save_requested.emit())
+        top_layout.addWidget(self.btn_save)
         
         # Settings Button
         self.btn_settings = QPushButton("Settings")
@@ -106,7 +115,7 @@ class PastastoreMainDock(QDockWidget):
             return
         name_item = self.table_oseries.item(item.row(), 0)
         if name_item:
-            self.edit_oseries_requested.emit(name_item.text())
+            self.create_model_requested.emit(name_item.text())
 
     def show_oseries_context_menu(self, position):
         from qgis.PyQt.QtWidgets import QMenu, QAction
@@ -121,8 +130,12 @@ class PastastoreMainDock(QDockWidget):
         
         menu = QMenu()
         
-        # Edit Series (single selection only)
+        # Create Model (single selection only) - at the top
         if len(names) == 1:
+            create_model_action = QAction("Create Model", self)
+            create_model_action.triggered.connect(lambda: self.create_model_requested.emit(names[0]))
+            menu.addAction(create_model_action)
+
             edit_action = QAction("Edit Series", self)
             edit_action.triggered.connect(lambda: self.edit_oseries_requested.emit(names[0]))
             menu.addAction(edit_action)
@@ -130,6 +143,10 @@ class PastastoreMainDock(QDockWidget):
         select_action = QAction("Select Models", self)
         select_action.triggered.connect(lambda: self.select_models_for_oseries_requested.emit(names))
         menu.addAction(select_action)
+        
+        delete_action = QAction("Delete Oseries", self)
+        delete_action.triggered.connect(lambda: self.delete_oseries_requested.emit(names))
+        menu.addAction(delete_action)
         
         menu.exec_(self.table_oseries.mapToGlobal(position))
 
@@ -148,6 +165,10 @@ class PastastoreMainDock(QDockWidget):
         select_action = QAction("Select Models", self)
         select_action.triggered.connect(lambda: self.select_models_for_stresses_requested.emit(names))
         menu.addAction(select_action)
+        
+        delete_action = QAction("Delete Stresses", self)
+        delete_action.triggered.connect(lambda: self.delete_stresses_requested.emit(names))
+        menu.addAction(delete_action)
         
         menu.exec_(self.table_stresses.mapToGlobal(position))
 
