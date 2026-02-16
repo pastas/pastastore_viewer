@@ -58,6 +58,7 @@ from .settings_dialog import PastastoreSettingsDialog
 from .model_editor import ModelEditorDialog
 from .results_plot import ResultsPlotDialog
 from .oseries_editor import OseriesEditorDialog
+from .bulk_models_dialog import BulkModelsDialog
 
 
 class PastastoreViewer:
@@ -152,6 +153,9 @@ class PastastoreViewer:
             self.dock_widget.edit_oseries_requested.connect(self.open_oseries_editor)
             self.dock_widget.create_model_requested.connect(
                 self.create_model_from_oseries
+            )
+            self.dock_widget.create_models_requested.connect(
+                self.create_models_from_oseries
             )
 
         if not self.plot_dock:
@@ -623,6 +627,8 @@ class PastastoreViewer:
             crs = QgsCoordinateReferenceSystem(f"EPSG:{crs_epsg}")
             layer = QgsVectorLayer(f"Point?crs={crs.authid()}", layer_name, "memory")
             layer.setCustomProperty("pastastore_type", layer_name)
+            # Mark as plugin-managed to suppress scratch layer warning
+            layer.setCustomProperty("skipMemoryLayersCheck", 1)
             pr = layer.dataProvider()
             fields = [QgsField("name", QVariant.String)]
             valid_cols = [
@@ -1103,7 +1109,7 @@ class PastastoreViewer:
                 # Reload layers to reflect changes (e.g. if model results changed)
                 # This might be heavy if many models, but safe.
                 self.load_layers_from_store()
-                
+
                 # Successfully saved, exit the loop
                 break
 
@@ -1169,6 +1175,64 @@ class PastastoreViewer:
                 "Error", f"Failed to create model: {str(e)}", level=2
             )
             print(traceback.format_exc())
+
+    def create_models_from_oseries(self, oseries_names):
+        if not self.store:
+            return
+        if not HAS_PASTAS:
+            QMessageBox.critical(
+                self.iface.mainWindow(), "Error", "pastas library not installed."
+            )
+            return
+        if not oseries_names:
+            return
+
+        dlg = BulkModelsDialog(oseries_names, self.store, self.iface.mainWindow())
+        if not dlg.exec_():
+            return
+
+        options = dlg.get_options()
+        suffix = options["suffix"]
+        add_recharge = options["add_recharge"]
+        solve = options["solve"]
+        tmin = options["tmin"]
+        tmax = options["tmax"]
+
+        existing_models = set(self.store.model_names or [])
+        failed = self.store.create_models_bulk(
+            oseries_names,
+            suffix=suffix,
+            add_recharge=add_recharge,
+            ignore_errors=True,
+            solve=solve,
+            tmin=tmin,
+            tmax=tmax,
+        )
+
+        created = sorted(list(set(self.store.model_names or []) - existing_models))
+        if created:
+            self.store_modified = True
+
+        if failed:
+            self.iface.messageBar().pushMessage(
+                "Warning",
+                f"Failed to create models for: {', '.join(failed)}. See console for details.",
+                level=1,
+            )
+            print(f"Failed to create models for: {', '.join(failed)}")
+
+        if self.dock_widget:
+            self.dock_widget.populate_lists(self.store)
+            self.dock_widget.tabs.setCurrentIndex(2)
+            if created:
+                self.dock_widget.select_items_in_list("models", created)
+
+        self.load_layers_from_store()
+
+        msg = f"Created {len(created)} model(s)"
+        if solve and created:
+            msg += " and solved"
+        self.iface.messageBar().pushMessage("Success", msg, level=0)
 
     def open_results_plot(self, model_name):
         if not self.store:

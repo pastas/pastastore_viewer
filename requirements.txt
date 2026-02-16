@@ -1,4 +1,4 @@
-pastastore
+pastastore>1.12.1
 pandas
 numpy
 pyqtgraph

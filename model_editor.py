@@ -54,6 +54,22 @@ class ModelEditorDialog(QDialog):
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
 
+        # Zoom buttons
+        zoom_layout = QHBoxLayout()
+        self.btn_zoom_in = QPushButton("+")
+        self.btn_pan = QPushButton("Pan")
+        self.btn_show_all = QPushButton("All")
+        for btn in [self.btn_zoom_in, self.btn_pan, self.btn_show_all]:
+            btn.setMaximumWidth(60)
+            zoom_layout.addWidget(btn)
+        zoom_layout.addStretch()
+        self.layout.addLayout(zoom_layout)
+
+        # Connect zoom buttons
+        self.btn_zoom_in.clicked.connect(self._enable_rect_zoom)
+        self.btn_pan.clicked.connect(self._enable_pan_zoom)
+        self.btn_show_all.clicked.connect(self.fit_plot)
+
         # Plot Widget (Top)
         self.plot_widget = pg.PlotWidget(axisItems={"bottom": DateAxisItem()})
         self.plot_widget.setBackground("w")
@@ -231,6 +247,26 @@ class ModelEditorDialog(QDialog):
         self.detail_input2.addItems(self.available_stresses)
         self.detail_input2.currentTextChanged.connect(self.save_detail_input2)
 
+        # StepModel datetime
+        self.detail_step_date_lbl = QLabel("Step Start:")
+        self.detail_step_date = QDateEdit()
+        self.detail_step_date.setCalendarPopup(True)
+        self.detail_step_date.setDisplayFormat("yyyy-MM-dd")
+        self.detail_step_date.dateChanged.connect(self.save_detail_step_date)
+
+        # LinearTrend datetimes
+        self.detail_trend_start_lbl = QLabel("Trend Start:")
+        self.detail_trend_start = QDateEdit()
+        self.detail_trend_start.setCalendarPopup(True)
+        self.detail_trend_start.setDisplayFormat("yyyy-MM-dd")
+        self.detail_trend_start.dateChanged.connect(self.save_detail_trend_start)
+
+        self.detail_trend_end_lbl = QLabel("Trend End:")
+        self.detail_trend_end = QDateEdit()
+        self.detail_trend_end.setCalendarPopup(True)
+        self.detail_trend_end.setDisplayFormat("yyyy-MM-dd")
+        self.detail_trend_end.dateChanged.connect(self.save_detail_trend_end)
+
         self.form_detail.addRow("Name:", self.detail_name)
         self.form_detail.addRow("Type:", self.detail_type)
         self.form_detail.addRow("Response Function:", self.detail_rfunc)
@@ -238,6 +274,9 @@ class ModelEditorDialog(QDialog):
         self.form_detail.addRow("", self.detail_up)
         self.form_detail.addRow(self.detail_input1_lbl, self.detail_input1)
         self.form_detail.addRow(self.detail_input2_lbl, self.detail_input2)
+        self.form_detail.addRow(self.detail_step_date_lbl, self.detail_step_date)
+        self.form_detail.addRow(self.detail_trend_start_lbl, self.detail_trend_start)
+        self.form_detail.addRow(self.detail_trend_end_lbl, self.detail_trend_end)
 
         self.hbox_stresses.addWidget(self.group_detail, 2)
 
@@ -284,7 +323,20 @@ class ModelEditorDialog(QDialog):
                 cols = ["initial", "optimal", "pmin", "pmax", "vary", "stderr"]
                 for j, col in enumerate(cols):
                     val = row.get(col, "")
-                    item = QTableWidgetItem(str(val))
+                    # Format numeric values with 4 decimal places
+                    if col != "vary" and val != "":
+                        try:
+                            val_float = float(val)
+                            if not np.isnan(val_float):
+                                val = f"{val_float:.4f}"
+                            else:
+                                val = "-"
+                        except (ValueError, TypeError):
+                            val = str(val)
+                    else:
+                        val = str(val)
+
+                    item = QTableWidgetItem(val)
 
                     # Editable columns: initial, pmin, pmax, vary
                     # Optimal and stderr are results (read-only mostly, but allow copy)
@@ -292,6 +344,23 @@ class ModelEditorDialog(QDialog):
                         item.setFlags(item.flags() ^ Qt.ItemIsEditable)
 
                     self.table_params.setItem(i, j, item)
+
+    def fit_plot(self):
+        """Reset zoom to show all data with standard bounds."""
+        vb = self.plot_widget.getViewBox()
+        vb.enableAutoRange(axis=vb.XYAxes, enable=True)
+        vb.autoRange(padding=0.02)
+        self._enable_pan_zoom()
+
+    def _enable_rect_zoom(self):
+        """Enable rectangle zoom mode."""
+        vb = self.plot_widget.getViewBox()
+        vb.setMouseMode(vb.RectMode)
+
+    def _enable_pan_zoom(self):
+        """Enable pan/zoom mode."""
+        vb = self.plot_widget.getViewBox()
+        vb.setMouseMode(vb.PanMode)
 
     def update_plot(self, model):
         self.plot_widget.clear()
@@ -321,10 +390,13 @@ class ModelEditorDialog(QDialog):
                 x = sim.index.view(np.int64) // 10**9
                 y = sim.values
                 self.plot_widget.plot(
-                    x, y, pen=pg.mkPen("r", width=2), name="Simulation"
+                    x, y, pen=pg.mkPen("#1f77b4", width=2), name="Simulation"
                 )
         except:
             pass
+
+        # Auto-fit the plot to show all data
+        self.fit_plot()
 
     def _parse_current_model(self, model):
         """Parse existing model structure into settings list."""
@@ -373,6 +445,22 @@ class ModelEditorDialog(QDialog):
                         entry["inputs"].append(sm.evap.name)
                     entry["recharge"] = sm.recharge.__class__.__name__
 
+            # StepModel specific
+            if cls_name == "StepModel":
+                entry["step_date"] = None
+                if hasattr(sm, "tstart") and sm.tstart is not None:
+                    # Convert to string date format
+                    entry["step_date"] = str(pd.Timestamp(sm.tstart).date())
+
+            # LinearTrend specific
+            if cls_name == "LinearTrend":
+                entry["trend_start"] = None
+                entry["trend_end"] = None
+                if hasattr(sm, "start") and sm.start is not None:
+                    entry["trend_start"] = str(pd.Timestamp(sm.start).date())
+                if hasattr(sm, "end") and sm.end is not None:
+                    entry["trend_end"] = str(pd.Timestamp(sm.end).date())
+
             settings.append(entry)
         return settings
 
@@ -397,6 +485,9 @@ class ModelEditorDialog(QDialog):
         self.detail_up.blockSignals(True)
         self.detail_input1.blockSignals(True)
         self.detail_input2.blockSignals(True)
+        self.detail_step_date.blockSignals(True)
+        self.detail_trend_start.blockSignals(True)
+        self.detail_trend_end.blockSignals(True)
 
         self.detail_name.setText(s["name"])
         self.detail_type.setCurrentText(s["type"])
@@ -414,6 +505,44 @@ class ModelEditorDialog(QDialog):
             if len(s["inputs"]) > 1:
                 self.detail_input2.setCurrentText(s["inputs"][1])
 
+        # StepModel dates
+        if s["type"] == "StepModel":
+            if s.get("step_date"):
+                self.detail_step_date.setDate(
+                    QDate.fromString(s["step_date"], "yyyy-MM-dd")
+                )
+            else:
+                # Default to model tmin
+                tmin = self.original_model.settings.get("tmin")
+                if tmin:
+                    self.detail_step_date.setDate(
+                        QDate.fromString(str(pd.Timestamp(tmin).date()), "yyyy-MM-dd")
+                    )
+
+        # LinearTrend dates
+        if s["type"] == "LinearTrend":
+            if s.get("trend_start"):
+                self.detail_trend_start.setDate(
+                    QDate.fromString(s["trend_start"], "yyyy-MM-dd")
+                )
+            else:
+                tmin = self.original_model.settings.get("tmin")
+                if tmin:
+                    self.detail_trend_start.setDate(
+                        QDate.fromString(str(pd.Timestamp(tmin).date()), "yyyy-MM-dd")
+                    )
+
+            if s.get("trend_end"):
+                self.detail_trend_end.setDate(
+                    QDate.fromString(s["trend_end"], "yyyy-MM-dd")
+                )
+            else:
+                tmax = self.original_model.settings.get("tmax")
+                if tmax:
+                    self.detail_trend_end.setDate(
+                        QDate.fromString(str(pd.Timestamp(tmax).date()), "yyyy-MM-dd")
+                    )
+
         self.detail_name.blockSignals(False)
         self.detail_type.blockSignals(False)
         self.detail_rfunc.blockSignals(False)
@@ -421,6 +550,9 @@ class ModelEditorDialog(QDialog):
         self.detail_up.blockSignals(False)
         self.detail_input1.blockSignals(False)
         self.detail_input2.blockSignals(False)
+        self.detail_step_date.blockSignals(False)
+        self.detail_trend_start.blockSignals(False)
+        self.detail_trend_end.blockSignals(False)
 
     def update_detail_visibility(self, type_name):
         # Default visibility
@@ -433,6 +565,12 @@ class ModelEditorDialog(QDialog):
         self.form_detail.labelForField(self.detail_rfunc).setVisible(True)
         self.detail_recharge.setVisible(False)
         self.form_detail.labelForField(self.detail_recharge).setVisible(False)
+        self.detail_step_date.setVisible(False)
+        self.detail_step_date_lbl.setVisible(False)
+        self.detail_trend_start.setVisible(False)
+        self.detail_trend_start_lbl.setVisible(False)
+        self.detail_trend_end.setVisible(False)
+        self.detail_trend_end_lbl.setVisible(False)
 
         if type_name == "StressModel":
             self.detail_input1_lbl.setText("Stress:")
@@ -445,16 +583,21 @@ class ModelEditorDialog(QDialog):
             self.detail_recharge.setVisible(True)
             self.form_detail.labelForField(self.detail_recharge).setVisible(True)
         elif type_name == "StepModel":
-            self.detail_input1_lbl.setText("Step Start (Not Impl):")
-            # StepModel needs more logic, keep simple for now
-            self.detail_rfunc.setVisible(False)
-            self.form_detail.labelForField(self.detail_rfunc).setVisible(False)
+            self.detail_input1.setVisible(False)
+            self.detail_input1_lbl.setVisible(False)
+            self.detail_step_date.setVisible(True)
+            self.detail_step_date_lbl.setVisible(True)
+            # StepModel now has rfunc
         elif type_name == "LinearTrend":
             self.detail_rfunc.setVisible(False)
             self.detail_up.setVisible(False)
             self.detail_input1.setVisible(False)
             self.detail_input1_lbl.setVisible(False)
             self.form_detail.labelForField(self.detail_rfunc).setVisible(False)
+            self.detail_trend_start.setVisible(True)
+            self.detail_trend_start_lbl.setVisible(True)
+            self.detail_trend_end.setVisible(True)
+            self.detail_trend_end_lbl.setVisible(True)
 
     def get_current_setting(self):
         row = self.list_stresses.currentRow()
@@ -507,9 +650,31 @@ class ModelEditorDialog(QDialog):
             else:
                 s["inputs"][1] = text
 
+    def save_detail_step_date(self, date):
+        s = self.get_current_setting()
+        if s:
+            s["step_date"] = date.toString("yyyy-MM-dd")
+
+    def save_detail_trend_start(self, date):
+        s = self.get_current_setting()
+        if s:
+            s["trend_start"] = date.toString("yyyy-MM-dd")
+
+    def save_detail_trend_end(self, date):
+        s = self.get_current_setting()
+        if s:
+            s["trend_end"] = date.toString("yyyy-MM-dd")
+
     def add_stressmodel(self):
         # Default new model
         name = f"stress_{len(self.stressmodel_settings)+1}"
+
+        # Get default dates from model tmin/tmax
+        tmin = self.original_model.settings.get("tmin")
+        tmax = self.original_model.settings.get("tmax")
+        default_start = str(pd.Timestamp(tmin).date()) if tmin else None
+        default_end = str(pd.Timestamp(tmax).date()) if tmax else None
+
         entry = {
             "name": name,
             "type": "StressModel",
@@ -517,6 +682,9 @@ class ModelEditorDialog(QDialog):
             "recharge": "Linear",
             "up": True,
             "inputs": [self.available_stresses[0] if self.available_stresses else ""],
+            "step_date": default_start,
+            "trend_start": default_start,
+            "trend_end": default_end,
         }
         self.stressmodel_settings.append(entry)
         self.list_stresses.addItem(name)
@@ -613,8 +781,29 @@ class ModelEditorDialog(QDialog):
                         )
                         model.add_stressmodel(sm)
 
+                    elif sm_type == "StepModel":
+                        tstart = s.get("step_date")
+                        if tstart:
+                            tstart = pd.Timestamp(tstart)
+                        else:
+                            tstart = None
+                        sm = ps.StepModel(
+                            tstart=tstart, rfunc=rfunc, name=name, up=s.get("up", True)
+                        )
+                        model.add_stressmodel(sm)
+
                     elif sm_type == "LinearTrend":
-                        sm = ps.LinearTrend(name=name)
+                        start = s.get("trend_start")
+                        end = s.get("trend_end")
+                        if start:
+                            start = pd.Timestamp(start)
+                        else:
+                            start = None
+                        if end:
+                            end = pd.Timestamp(end)
+                        else:
+                            end = None
+                        sm = ps.LinearTrend(start=start, end=end, name=name)
                         model.add_stressmodel(sm)
 
                 except Exception as e:

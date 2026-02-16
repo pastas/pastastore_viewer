@@ -96,6 +96,7 @@ class OseriesEditorDialog(QDialog):
         self._syncing_selection = False
 
         self.setWindowTitle(f"Edit Oseries: {oseries_name}")
+        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
         self.resize(1200, 700)
 
         self.setup_ui()
