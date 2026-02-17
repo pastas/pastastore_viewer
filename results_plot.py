@@ -19,6 +19,7 @@ from pyqtgraph import DateAxisItem
 import numpy as np
 import pandas as pd
 import pastas as ps
+from .plot_toolbar import PlotNavigationWidget
 
 
 class ResultsPlotDialog(QDialog):
@@ -60,8 +61,22 @@ class ResultsPlotDialog(QDialog):
         stderr_action.triggered.connect(self.toggle_stderr)
         self.settings_menu.addAction(stderr_action)
 
+        # Split Contributions Toggle
+        split_action = QAction("Split Contributions", self, checkable=True)
+        split_action.setChecked(self.split_contributions)
+        split_action.triggered.connect(self.toggle_split_contributions)
+        self.settings_menu.addAction(split_action)
+
+        # Block Response Toggle
+        block_action = QAction("Show Block Response", self, checkable=True)
+        block_action.setChecked(self.show_block_response)
+        block_action.triggered.connect(self.toggle_block_response)
+        self.settings_menu.addAction(block_action)
+
         self.settings_btn.setMenu(self.settings_menu)
         self.toolbar_layout.addWidget(self.settings_btn)
+        self.plot_nav = PlotNavigationWidget(parent=self)
+        self.toolbar_layout.addWidget(self.plot_nav)
         self.toolbar_layout.addStretch()
         self.main_layout.addLayout(self.toolbar_layout)
 
@@ -92,11 +107,23 @@ class ResultsPlotDialog(QDialog):
         self.show_stderr = proj.readBoolEntry(
             "PastastoreViewer", "results_show_stderr", False
         )[0]
+        self.split_contributions = proj.readBoolEntry(
+            "PastastoreViewer", "results_split_contributions", False
+        )[0]
+        self.show_block_response = proj.readBoolEntry(
+            "PastastoreViewer", "results_show_block_response", False
+        )[0]
 
     def save_settings(self):
         proj = QgsProject.instance()
         proj.writeEntry("PastastoreViewer", "results_show_warmup", self.show_warmup)
         proj.writeEntry("PastastoreViewer", "results_show_stderr", self.show_stderr)
+        proj.writeEntry(
+            "PastastoreViewer", "results_split_contributions", self.split_contributions
+        )
+        proj.writeEntry(
+            "PastastoreViewer", "results_show_block_response", self.show_block_response
+        )
 
     def toggle_warmup(self, checked):
         self.show_warmup = checked
@@ -107,6 +134,17 @@ class ResultsPlotDialog(QDialog):
         self.show_stderr = checked
         self.save_settings()
         self.plot_results()
+
+    def toggle_split_contributions(self, checked):
+        self.split_contributions = checked
+        self.save_settings()
+        self.plot_results()
+
+    def toggle_block_response(self, checked):
+        self.show_block_response = checked
+        self.save_settings()
+        self.plot_results()
+
 
     def _prepare_data(self, series):
         if series is None or series.empty:
@@ -174,7 +212,9 @@ class ResultsPlotDialog(QDialog):
             ylims.append((rmin, rmax))
 
         # Plot 2+: Contributions
-        sm_contribs = ml.get_contributions(return_warmup=self.show_warmup)
+        sm_contribs = ml.get_contributions(
+            return_warmup=self.show_warmup, split=self.split_contributions
+        )
         for c in sm_contribs:
             ylims.append(get_series_stats_local(c))
 
@@ -289,15 +329,54 @@ class ResultsPlotDialog(QDialog):
             350 + Y_AXIS_WIDTH if not self.show_stderr else 450 + Y_AXIS_WIDTH
         )
 
-        # Rows 2+: Contributions and Step Responses
-        for i, name in enumerate(sm_names):
+        # Rows 2+: Contributions and Step/Block Responses
+        # Get contribution names to match with series
+        contrib_names = [c.name for c in sm_contribs]
+
+        # Pre-calculate all responses for plotting
+        responses = []
+        response_type = "block" if self.show_block_response else "step"
+        add_zero = not self.show_block_response
+
+        for sm_name, sm in self.ml.stressmodels.items():
+            # plot the contribution
+            nsplit = sm.get_nsplit() if self.split_contributions else 1
+            if nsplit == 0:
+                nsplit = 1
+            for istress in range(nsplit):
+                resp = ml._get_response(
+                    block_or_step=response_type,
+                    name=sm_name,
+                    add_0=add_zero,
+                    istress=istress,
+                )
+                if (
+                    hasattr(sm, "stress")
+                    and sm.stress is not None
+                    and istress < len(sm.stress)
+                ):
+                    stress_name = sm.stress[istress].name
+                else:
+                    stress_name = None
+                response_x = resp.index.values if resp is not None else None
+                response_data = resp.values if resp is not None else None
+
+                responses.append((sm_name, stress_name, response_x, response_data))
+
+        # Now plot contributions and responses with consistent x-limits
+        for i, contrib_series in enumerate(sm_contribs):
             color = sm_colors[i % len(sm_colors)]
             row_idx = i + 2
+            contrib_name = contrib_names[i]
+            if i < len(responses):
+                sm_name, stress_name, response_x, response_data = responses[i]
+            else:
+                sm_name, stress_name, response_x, response_data = None, None, None, None
 
             p_sm = self.win.addPlot(
                 row=row_idx, col=0, axisItems={"bottom": DateAxisItem()}
             )
-            p_sm.setTitle(f"Contribution: {name}")
+            p_sm.setTitle(f"Contribution: {contrib_name}")
             p_sm.showGrid(x=True, y=True)
             p_sm.setXLink(p1)
             h_sm = int(ranges[row_idx] * pixels_per_unit) + OVERHEAD
@@ -307,28 +386,34 @@ class ResultsPlotDialog(QDialog):
             h_list.append(h_sm)
             main_col_plots.append(p_sm)
 
-            cx, cy = self._prepare_data(sm_contribs[i])
+            cx, cy = self._prepare_data(contrib_series)
             if cx is not None:
                 p_sm.plot(cx, cy, pen=pg.mkPen(color, width=1.5))
 
+            # Response plot (step or block)
             p_rf = self.win.addPlot(row=row_idx, col=1)
-            p_rf.setTitle(f"Step Response: {name}")
+            response_title = (
+                "Block Response" if self.show_block_response else "Step Response"
+            )
+            if stress_name:
+                p_rf.setTitle(f"{response_title}: {sm_name} ({stress_name})")
+            else:
+                p_rf.setTitle(f"{response_title}: {sm_name}")
             p_rf.showGrid(x=True, y=True)
+            if self.show_block_response:
+                p_rf.setLogMode(x=True, y=False)
             p_rf.setMinimumHeight(h_sm)
             p_rf.setMaximumHeight(h_sm)
             side_plots.append(p_rf)
 
-            try:
-                p_current = ml.get_parameters()
-                step = ml.get_step_response(name, p=p_current, add_0=True)
-                if isinstance(step, (pd.Series, pd.DataFrame)):
-                    y_step, x_step = step.values, np.arange(len(step))
-                else:
-                    y_step, x_step = step, np.arange(len(step))
-                if len(y_step) > 0:
-                    p_rf.plot(x_step, y_step, pen=pg.mkPen(color, width=2))
-            except Exception as e:
-                print(f"Error plotting step response for {name}: {e}")
+            if response_data is not None and len(response_data) > 0:
+                x_resp = response_x if response_x is not None else np.arange(len(response_data))
+                p_rf.plot(x_resp, response_data, pen=pg.mkPen(color, width=2))
+                # Tight x-limits around the data
+                x_min = float(np.nanmin(x_resp))
+                x_max = float(np.nanmax(x_resp))
+                if np.isfinite(x_min) and np.isfinite(x_max) and x_min < x_max:
+                    p_rf.setXRange(x_min, x_max, padding=0)
 
         # Final layout
         total_calculated_height = sum(h_list) + (len(h_list) - 1) * SPACING + MARGINS
@@ -339,7 +424,9 @@ class ResultsPlotDialog(QDialog):
         self.win.ci.layout.setColumnStretchFactor(0, 3)
         self.win.ci.layout.setColumnStretchFactor(1, 1)
 
-        for p in main_col_plots + side_plots:
+        self._all_plots = main_col_plots + side_plots
+        self.plot_nav.set_plots(self._all_plots)
+        for p in self._all_plots:
             p.getAxis("left").setWidth(Y_AXIS_WIDTH)
             for axis in ["bottom", "left"]:
                 ax = p.getAxis(axis)

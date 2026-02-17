@@ -5,10 +5,9 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QLabel,
-    QPushButton,
-    QHBoxLayout,
 )
 from qgis.PyQt.QtCore import Qt
+from .plot_toolbar import PlotNavigationWidget
 
 try:
     import pyqtgraph as pg
@@ -33,16 +32,8 @@ class PastastorePlotDock(QDockWidget):
         self.layout = QVBoxLayout()
         self.container.setLayout(self.layout)
 
-        # Zoom Buttons
-        zoom_layout = QHBoxLayout()
-        self.btn_zoom_in = QPushButton("+")
-        self.btn_pan = QPushButton("Pan")
-        self.btn_show_all = QPushButton("All")
-        for btn in [self.btn_zoom_in, self.btn_pan, self.btn_show_all]:
-            btn.setMaximumWidth(60)
-            zoom_layout.addWidget(btn)
-        zoom_layout.addStretch()
-        self.layout.addLayout(zoom_layout)
+        self.plot_nav = PlotNavigationWidget(parent=self)
+        self.layout.addWidget(self.plot_nav)
 
         # Plot Widget
         if pg:
@@ -58,10 +49,7 @@ class PastastorePlotDock(QDockWidget):
 
             self.layout.addWidget(self.plot_widget)
 
-            # Connect zoom buttons
-            self.btn_zoom_in.clicked.connect(self._enable_rect_zoom)
-            self.btn_pan.clicked.connect(self._enable_pan_zoom)
-            self.btn_show_all.clicked.connect(self.fit_plot)
+            self.plot_nav.set_plots([self.plot_widget])
         else:
             self.layout.addWidget(QLabel("pyqtgraph missing"))
 
@@ -70,10 +58,7 @@ class PastastorePlotDock(QDockWidget):
     def fit_plot(self):
         """Reset zoom to show all data with standard bounds."""
         if pg:
-            vb = self.plot_widget.getViewBox()
-            vb.enableAutoRange(axis=vb.XYAxes, enable=True)
-            vb.autoRange(padding=0.02)
-            self._enable_pan_zoom()
+            self.plot_nav.fit_all()
 
     def clear_plot(self, category="data"):
         if pg:
@@ -290,16 +275,6 @@ class PastastorePlotDock(QDockWidget):
                     )
 
         self.fit_plot()
-
-    def _enable_rect_zoom(self):
-        if pg:
-            vb = self.plot_widget.getViewBox()
-            vb.setMouseMode(vb.RectMode)
-
-    def _enable_pan_zoom(self):
-        if pg:
-            vb = self.plot_widget.getViewBox()
-            vb.setMouseMode(vb.PanMode)
 
     def save_state_to_project(self):
         """Saves dock visibility to project."""

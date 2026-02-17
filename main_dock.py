@@ -16,6 +16,7 @@ from qgis.PyQt.QtWidgets import (
     QLineEdit,
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
+from qgis.core import QgsApplication
 import pandas as pd
 import numpy as np
 
@@ -35,6 +36,8 @@ class PastastoreMainDock(QDockWidget):
     results_requested = pyqtSignal(str)  # model name
     select_models_for_oseries_requested = pyqtSignal(list)  # oseries names
     select_models_for_stresses_requested = pyqtSignal(list)  # stresses names
+    select_oseries_for_models_requested = pyqtSignal(list)  # model names
+    select_stresses_for_models_requested = pyqtSignal(list)  # model names
     edit_oseries_requested = pyqtSignal(str)  # oseries name
     create_model_requested = pyqtSignal(str)  # oseries name
     create_models_requested = pyqtSignal(list)  # oseries names
@@ -157,30 +160,39 @@ class PastastoreMainDock(QDockWidget):
         # Create Model(s) - at the top
         if len(names) == 1:
             create_model_action = QAction("Create Model", self)
+            create_model_action.setIcon(
+                QgsApplication.getThemeIcon("/mActionNewMemoryLayer.svg")
+            )
             create_model_action.triggered.connect(
                 lambda: self.create_model_requested.emit(names[0])
             )
             menu.addAction(create_model_action)
 
             edit_action = QAction("Edit Series", self)
+            edit_action.setIcon(QgsApplication.getThemeIcon("/mActionEditTable.svg"))
             edit_action.triggered.connect(
                 lambda: self.edit_oseries_requested.emit(names[0])
             )
             menu.addAction(edit_action)
         else:
             create_models_action = QAction("Create Models", self)
+            create_models_action.setIcon(
+                QgsApplication.getThemeIcon("/mActionNewMemoryLayer.svg")
+            )
             create_models_action.triggered.connect(
                 lambda: self.create_models_requested.emit(names)
             )
             menu.addAction(create_models_action)
 
         select_action = QAction("Select Models", self)
+        select_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
         select_action.triggered.connect(
             lambda: self.select_models_for_oseries_requested.emit(names)
         )
         menu.addAction(select_action)
 
         delete_action = QAction("Delete Oseries", self)
+        delete_action.setIcon(QgsApplication.getThemeIcon("/mActionDeleteSelected.svg"))
         delete_action.triggered.connect(
             lambda: self.delete_oseries_requested.emit(names)
         )
@@ -201,12 +213,14 @@ class PastastoreMainDock(QDockWidget):
 
         menu = QMenu()
         select_action = QAction("Select Models", self)
+        select_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
         select_action.triggered.connect(
             lambda: self.select_models_for_stresses_requested.emit(names)
         )
         menu.addAction(select_action)
 
         delete_action = QAction("Delete Stresses", self)
+        delete_action.setIcon(QgsApplication.getThemeIcon("/mActionDeleteSelected.svg"))
         delete_action.triggered.connect(
             lambda: self.delete_stresses_requested.emit(names)
         )
@@ -217,29 +231,53 @@ class PastastoreMainDock(QDockWidget):
     def show_model_context_menu(self, position):
         from qgis.PyQt.QtWidgets import QMenu, QAction
 
+        if not self.list_models.selectedItems():
+            item = self.list_models.itemAt(position)
+            if item is not None:
+                self.list_models.setCurrentItem(item)
+
         items = self.list_models.selectedItems()
         if not items:
             return
+
+        names = [i.text() for i in items]
 
         menu = QMenu()
 
         # Edit Action (Single selection only)
         if len(items) == 1:
             edit_action = QAction("Edit Model", self)
+            edit_action.setIcon(QgsApplication.getThemeIcon("/mActionEditTable.svg"))
             edit_action.triggered.connect(
                 lambda: self.edit_model_requested.emit(items[0].text())
             )
             menu.addAction(edit_action)
 
             results_action = QAction("Show Results", self)
+            results_action.setIcon(QgsApplication.getThemeIcon("/mIconTable.svg"))
             results_action.triggered.connect(
                 lambda: self.results_requested.emit(items[0].text())
             )
             menu.addAction(results_action)
 
+        select_oseries_action = QAction("Select Oseries", self)
+        select_oseries_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
+        select_oseries_action.triggered.connect(
+            lambda: self.select_oseries_for_models_requested.emit(names)
+        )
+        menu.addAction(select_oseries_action)
+
+        select_stresses_action = QAction("Select Stresses", self)
+        select_stresses_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
+        select_stresses_action.triggered.connect(
+            lambda: self.select_stresses_for_models_requested.emit(names)
+        )
+        menu.addAction(select_stresses_action)
+
         delete_action = QAction("Delete Model(s)", self)
+        delete_action.setIcon(QgsApplication.getThemeIcon("/mActionDeleteSelected.svg"))
         delete_action.triggered.connect(
-            lambda: self.delete_model_requested.emit([i.text() for i in items])
+            lambda: self.delete_model_requested.emit(names)
         )
         menu.addAction(delete_action)
 
@@ -338,7 +376,9 @@ class PastastoreMainDock(QDockWidget):
             return [item.text() for item in items]
         return []
 
-    def select_items_in_list(self, category, names, switch_tab=True, trigger_signal=True):
+    def select_items_in_list(
+        self, category, names, switch_tab=True, trigger_signal=True
+    ):
         """Programmatically select items in the corresponding list."""
         list_widget = None
         if category == "oseries":
@@ -498,33 +538,3 @@ class PastastoreMainDock(QDockWidget):
                 pass
             self.visibilityChanged.connect(self.save_state_to_project)
 
-    def show_model_context_menu(self, position):
-        from qgis.PyQt.QtWidgets import QMenu, QAction
-
-        items = self.list_models.selectedItems()
-        if not items:
-            return
-
-        menu = QMenu()
-
-        # Edit Action (Single selection only)
-        if len(items) == 1:
-            edit_action = QAction("Edit Model", self)
-            edit_action.triggered.connect(
-                lambda: self.edit_model_requested.emit(items[0].text())
-            )
-            menu.addAction(edit_action)
-
-            results_action = QAction("Show Results", self)
-            results_action.triggered.connect(
-                lambda: self.results_requested.emit(items[0].text())
-            )
-            menu.addAction(results_action)
-
-        delete_action = QAction("Delete Model(s)", self)
-        delete_action.triggered.connect(
-            lambda: self.delete_model_requested.emit([i.text() for i in items])
-        )
-        menu.addAction(delete_action)
-
-        menu.exec_(self.list_models.mapToGlobal(position))

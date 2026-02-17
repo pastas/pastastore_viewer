@@ -15,8 +15,10 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import Qt, QDateTime, QRectF
 from qgis.PyQt.QtGui import QColor, QPen
+from qgis.core import QgsApplication
 import pandas as pd
 import numpy as np
+from .plot_toolbar import PlotNavigationWidget
 
 try:
     import pyqtgraph as pg
@@ -136,31 +138,39 @@ class OseriesEditorDialog(QDialog):
 
         if HAS_PYQTGRAPH:
             zoom_layout = QHBoxLayout()
-            self.btn_select = QPushButton("Select")
-            self.btn_zoom_in = QPushButton("+")
-            self.btn_pan = QPushButton("Pan")
-            self.btn_show_all = QPushButton("All")
-            self.btn_remove = QPushButton("Remove Selected")
-            self.btn_add = QPushButton("Add Observation")
-            self.btn_modify = QPushButton("Modify Selected")
+            self.btn_select = QPushButton()
+            self.btn_select.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
+            self.btn_select.setToolTip("Select Points")
+            self.plot_nav = PlotNavigationWidget(
+                on_rect=self._enable_rect_zoom,
+                on_pan=self._enable_pan_zoom,
+                on_full=self.fit_plot,
+                default_mode=None,
+                parent=self,
+            )
+            self.btn_remove = QPushButton()
+            self.btn_remove.setIcon(
+                QgsApplication.getThemeIcon("/mActionDeleteSelected.svg")
+            )
+            self.btn_remove.setToolTip("Remove Selected Points")
+            self.btn_add = QPushButton()
+            self.btn_add.setIcon(
+                QgsApplication.getThemeIcon("/mActionNewAttribute.svg")
+            )
+            self.btn_add.setToolTip("Add Observation")
+            self.btn_modify = QPushButton()
+            self.btn_modify.setIcon(
+                QgsApplication.getThemeIcon("/mActionEditTable.svg")
+            )
+            self.btn_modify.setToolTip("Modify Selected Point")
             self.btn_select.setCheckable(True)
-            self.btn_zoom_in.setCheckable(True)
-            self.btn_pan.setCheckable(True)
-            self.btn_select.setMaximumWidth(70)
-            self.btn_zoom_in.setMaximumWidth(60)
-            self.btn_pan.setMaximumWidth(60)
-            self.btn_show_all.setMaximumWidth(60)
+            self.btn_select.setMaximumWidth(40)
             self.btn_select.clicked.connect(self._enable_select_mode)
-            self.btn_zoom_in.clicked.connect(self._enable_rect_zoom)
-            self.btn_pan.clicked.connect(self._enable_pan_zoom)
-            self.btn_show_all.clicked.connect(self.fit_plot)
             self.btn_remove.clicked.connect(self.remove_selected)
             self.btn_add.clicked.connect(self.add_point)
             self.btn_modify.clicked.connect(self.modify_selected)
             zoom_layout.addWidget(self.btn_select)
-            zoom_layout.addWidget(self.btn_zoom_in)
-            zoom_layout.addWidget(self.btn_pan)
-            zoom_layout.addWidget(self.btn_show_all)
+            zoom_layout.addWidget(self.plot_nav)
             zoom_layout.addStretch()
             zoom_layout.addWidget(self.btn_remove)
             zoom_layout.addWidget(self.btn_add)
@@ -371,24 +381,21 @@ class OseriesEditorDialog(QDialog):
             return
         self.view_box.enable_zoom_mode()
         self.btn_select.setChecked(False)
-        self.btn_zoom_in.setChecked(True)
-        self.btn_pan.setChecked(False)
+        self.plot_nav.set_mode("rect", trigger=False)
 
     def _enable_pan_zoom(self):
         if not HAS_PYQTGRAPH:
             return
         self.view_box.enable_pan_mode()
         self.btn_select.setChecked(False)
-        self.btn_zoom_in.setChecked(False)
-        self.btn_pan.setChecked(True)
+        self.plot_nav.set_mode("pan", trigger=False)
 
     def _enable_select_mode(self):
         if not HAS_PYQTGRAPH:
             return
         self.view_box.enable_select_mode()
         self.btn_select.setChecked(True)
-        self.btn_zoom_in.setChecked(False)
-        self.btn_pan.setChecked(False)
+        self.plot_nav.set_mode(None, trigger=False)
 
     def fit_plot(self):
         if not HAS_PYQTGRAPH:

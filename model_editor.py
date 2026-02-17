@@ -22,6 +22,8 @@ from qgis.PyQt.QtWidgets import (
     QApplication,
 )
 from qgis.PyQt.QtCore import Qt, QDate
+from qgis.core import QgsApplication
+from .plot_toolbar import PlotNavigationWidget
 import pandas as pd
 import numpy as np
 import pastastore as pst
@@ -54,21 +56,8 @@ class ModelEditorDialog(QDialog):
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
 
-        # Zoom buttons
-        zoom_layout = QHBoxLayout()
-        self.btn_zoom_in = QPushButton("+")
-        self.btn_pan = QPushButton("Pan")
-        self.btn_show_all = QPushButton("All")
-        for btn in [self.btn_zoom_in, self.btn_pan, self.btn_show_all]:
-            btn.setMaximumWidth(60)
-            zoom_layout.addWidget(btn)
-        zoom_layout.addStretch()
-        self.layout.addLayout(zoom_layout)
-
-        # Connect zoom buttons
-        self.btn_zoom_in.clicked.connect(self._enable_rect_zoom)
-        self.btn_pan.clicked.connect(self._enable_pan_zoom)
-        self.btn_show_all.clicked.connect(self.fit_plot)
+        self.plot_nav = PlotNavigationWidget(parent=self)
+        self.layout.addWidget(self.plot_nav)
 
         # Plot Widget (Top)
         self.plot_widget = pg.PlotWidget(axisItems={"bottom": DateAxisItem()})
@@ -79,6 +68,7 @@ class ModelEditorDialog(QDialog):
             ax.setPen("k")
             ax.setTextPen("k")
         self.layout.addWidget(self.plot_widget)
+        self.plot_nav.set_plots([self.plot_widget])
 
         # Middle: Tabs
         self.tabs = QTabWidget()
@@ -286,8 +276,8 @@ class ModelEditorDialog(QDialog):
 
         # Bottom Buttons
         self.btn_solve = QPushButton("Solve")
+        self.btn_solve.setIcon(QgsApplication.getThemeIcon("/mActionRun.svg"))
         self.btn_solve.clicked.connect(self.solve_model)
-        self.layout.addWidget(self.btn_solve)
 
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.Save | QDialogButtonBox.Cancel
@@ -295,7 +285,18 @@ class ModelEditorDialog(QDialog):
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         self.button_box.button(QDialogButtonBox.Save).setText("Save Model")
-        self.layout.addWidget(self.button_box)
+        self.button_box.button(QDialogButtonBox.Save).setIcon(
+            QgsApplication.getThemeIcon("/mActionFileSave.svg")
+        )
+        self.button_box.button(QDialogButtonBox.Cancel).setIcon(
+            QgsApplication.getThemeIcon("/mActionCancel.svg")
+        )
+
+        bottom_layout = QHBoxLayout()
+        bottom_layout.addStretch()
+        bottom_layout.addWidget(self.btn_solve)
+        bottom_layout.addWidget(self.button_box)
+        self.layout.addLayout(bottom_layout)
 
         # Initialize UI
         self.populate_list()
@@ -347,20 +348,8 @@ class ModelEditorDialog(QDialog):
 
     def fit_plot(self):
         """Reset zoom to show all data with standard bounds."""
-        vb = self.plot_widget.getViewBox()
-        vb.enableAutoRange(axis=vb.XYAxes, enable=True)
-        vb.autoRange(padding=0.02)
-        self._enable_pan_zoom()
-
-    def _enable_rect_zoom(self):
-        """Enable rectangle zoom mode."""
-        vb = self.plot_widget.getViewBox()
-        vb.setMouseMode(vb.RectMode)
-
-    def _enable_pan_zoom(self):
-        """Enable pan/zoom mode."""
-        vb = self.plot_widget.getViewBox()
-        vb.setMouseMode(vb.PanMode)
+        self.plot_nav.fit_all()
+        self.plot_nav.set_mode("pan", trigger=True)
 
     def update_plot(self, model):
         self.plot_widget.clear()

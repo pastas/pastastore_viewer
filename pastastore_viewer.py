@@ -150,6 +150,12 @@ class PastastoreViewer:
             self.dock_widget.select_models_for_stresses_requested.connect(
                 self.select_models_for_stresses
             )
+            self.dock_widget.select_oseries_for_models_requested.connect(
+                self.select_oseries_for_models
+            )
+            self.dock_widget.select_stresses_for_models_requested.connect(
+                self.select_stresses_for_models
+            )
             self.dock_widget.edit_oseries_requested.connect(self.open_oseries_editor)
             self.dock_widget.create_model_requested.connect(
                 self.create_model_from_oseries
@@ -1443,6 +1449,118 @@ class PastastoreViewer:
 
             self.iface.messageBar().pushMessage(
                 "Error", f"Failed to select models: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def select_oseries_for_models(self, model_names):
+        """Selects oseries in the dock for the given model names."""
+        if not self.store:
+            return
+
+        try:
+            matching_oseries = []
+            for m in model_names:
+                meta = self.store.get_models(m, return_dict=True)
+                if meta and "oseries" in meta and "name" in meta["oseries"]:
+                    matching_oseries.append(meta["oseries"]["name"])
+
+            matching_oseries = sorted(set(matching_oseries))
+
+            if matching_oseries:
+                if len(matching_oseries) > 10:
+                    reply = QMessageBox.question(
+                        self.iface.mainWindow(),
+                        "Many Oseries Selected",
+                        f"This will select {len(matching_oseries)} oseries. Continue?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No,
+                    )
+                    if reply == QMessageBox.No:
+                        return
+
+                self.dock_widget.select_items_in_list("oseries", matching_oseries)
+                self.dock_widget.tabs.setCurrentIndex(0)
+            else:
+                self.iface.messageBar().pushMessage(
+                    "Info",
+                    f"No oseries found for selected models: {model_names}.",
+                    level=0,
+                )
+
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to select oseries: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def select_stresses_for_models(self, model_names):
+        """Selects stresses in the dock for the given model names."""
+        if not self.store:
+            return
+
+        try:
+            matching_stresses = []
+            for m in model_names:
+                meta = self.store.get_models(m, return_dict=True)
+                if not meta or "stressmodels" not in meta:
+                    continue
+
+                for sm_name, sm_data in meta["stressmodels"].items():
+                    # Regular stress models
+                    if "stress" in sm_data:
+                        stress_list = (
+                            sm_data["stress"]
+                            if isinstance(sm_data["stress"], list)
+                            else [sm_data["stress"]]
+                        )
+                        for stress_info in stress_list:
+                            if isinstance(stress_info, dict) and "name" in stress_info:
+                                matching_stresses.append(stress_info["name"])
+                            elif isinstance(stress_info, str):
+                                matching_stresses.append(stress_info)
+
+                    # RechargeModel stresses
+                    for key in ["prec", "evap"]:
+                        if key in sm_data:
+                            stress_info = sm_data[key]
+                            if isinstance(stress_info, dict) and "name" in stress_info:
+                                matching_stresses.append(stress_info["name"])
+                            elif isinstance(stress_info, str):
+                                matching_stresses.append(stress_info)
+
+            matching_stresses = sorted(set(matching_stresses))
+            if hasattr(self.store, "stresses") and self.store.stresses is not None:
+                available = set(self.store.stresses.index)
+                matching_stresses = [s for s in matching_stresses if s in available]
+
+            if matching_stresses:
+                if len(matching_stresses) > 10:
+                    reply = QMessageBox.question(
+                        self.iface.mainWindow(),
+                        "Many Stresses Selected",
+                        f"This will select {len(matching_stresses)} stresses. Continue?",
+                        QMessageBox.Yes | QMessageBox.No,
+                        QMessageBox.No,
+                    )
+                    if reply == QMessageBox.No:
+                        return
+
+                self.dock_widget.select_items_in_list("stresses", matching_stresses)
+                self.dock_widget.tabs.setCurrentIndex(1)
+            else:
+                self.iface.messageBar().pushMessage(
+                    "Info",
+                    f"No stresses found for selected models: {model_names}.",
+                    level=0,
+                )
+
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to select stresses: {str(e)}", level=2
             )
             print(traceback.format_exc())
 

@@ -11,30 +11,59 @@ import importlib.util
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
+
 _REQUIRED_PACKAGES = ["pastastore", "pastas", "pyqtgraph"]
 _RUNTIME_INSTALL_DONE = False
+_PLUGIN_DIR = os.path.dirname(__file__)
+_DEPS_DIR = os.path.join(_PLUGIN_DIR, "dependencies")
 
+
+@contextmanager
+def _isolated_import():
+    """Temporarily prepend dependencies folder to sys.path for imports only."""
+    added_paths = []
+    if os.path.isdir(_DEPS_DIR):
+        if _DEPS_DIR not in sys.path:
+            sys.path.insert(0, _DEPS_DIR)
+            added_paths.append(_DEPS_DIR)
+
+        for entry in os.listdir(_DEPS_DIR):
+            if entry.endswith((".whl", ".zip")):
+                path = os.path.join(_DEPS_DIR, entry)
+                if path not in sys.path:
+                    sys.path.insert(0, path)
+                    added_paths.append(path)
+
+    try:
+        yield
+    finally:
+        # Remove added paths in reverse order
+        for path in reversed(added_paths):
+            try:
+                sys.path.remove(path)
+            except ValueError:
+                pass
 
 
 def _add_vendor_paths():
-    """Add bundled dependency paths if present."""
-    plugin_dir = os.path.dirname(__file__)
-    deps_dir = os.path.join(plugin_dir, "dependencies")
-    if os.path.isdir(deps_dir):
-        if deps_dir not in sys.path:
-            sys.path.insert(0, deps_dir)
-        for entry in os.listdir(deps_dir):
+    """Add bundled dependency paths permanently (legacy fallback)."""
+    if os.path.isdir(_DEPS_DIR):
+        if _DEPS_DIR not in sys.path:
+            sys.path.insert(0, _DEPS_DIR)
+        for entry in os.listdir(_DEPS_DIR):
             if entry.endswith((".whl", ".zip")):
-                path = os.path.join(deps_dir, entry)
+                path = os.path.join(_DEPS_DIR, entry)
                 if path not in sys.path:
                     sys.path.insert(0, path)
 
 
 def _missing_packages():
     missing = []
-    for name in _REQUIRED_PACKAGES:
-        if importlib.util.find_spec(name) is None:
-            missing.append(name)
+    with _isolated_import():
+        for name in _REQUIRED_PACKAGES:
+            if importlib.util.find_spec(name) is None:
+                missing.append(name)
     return missing
 
 
@@ -100,12 +129,12 @@ def _ensure_runtime_deps():
         )
         return
 
-    _add_vendor_paths()
     _RUNTIME_INSTALL_DONE = True
 
 
-_add_vendor_paths()
+# Check and prompt for runtime dependencies
 _ensure_runtime_deps()
+
 
 def classFactory(iface):
     """Load PastastoreViewer class from file PastastoreViewer.
@@ -113,5 +142,7 @@ def classFactory(iface):
     :param iface: A QGIS interface instance.
     :type iface: QgsInterface
     """
-    from .pastastore_viewer import PastastoreViewer
+    # Import with isolated sys.path to reduce exposure to other plugins
+    with _isolated_import():
+        from .pastastore_viewer import PastastoreViewer
     return PastastoreViewer(iface)
