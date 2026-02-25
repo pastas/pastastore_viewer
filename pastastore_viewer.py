@@ -58,6 +58,7 @@ from .settings_dialog import PastastoreSettingsDialog
 from .model_editor import ModelEditorDialog
 from .results_plot import ResultsPlotDialog
 from .oseries_editor import OseriesEditorDialog
+from .bro_import_dialog import BROImportDialog
 from .bulk_models_dialog import BulkModelsDialog
 
 
@@ -75,6 +76,7 @@ class PastastoreViewer:
         self.action = None
         self.is_updating_selection = False
         self.store_modified = False
+        self.bro_import_dialog = None
 
     def tr(self, message):
         return QCoreApplication.translate("PastastoreViewer", message)
@@ -108,6 +110,9 @@ class PastastoreViewer:
             self.on_project_read()
 
     def unload(self):
+        if not self._prompt_save_if_needed(allow_cancel=True):
+            return
+
         for action in self.actions:
             self.iface.removePluginMenu(self.tr("&Pastastore Viewer"), action)
             self.iface.removeToolBarIcon(action)
@@ -135,6 +140,7 @@ class PastastoreViewer:
 
             # Connect dock signals
             self.dock_widget.load_requested.connect(self.load_pastastore)
+            self.dock_widget.new_requested.connect(self.new_pastastore)
             self.dock_widget.save_requested.connect(self.save_pastastore)
             self.dock_widget.item_selected.connect(self.on_item_selected)
             self.dock_widget.settings_requested.connect(self.open_settings)
@@ -163,6 +169,7 @@ class PastastoreViewer:
             self.dock_widget.create_models_requested.connect(
                 self.create_models_from_oseries
             )
+            self.dock_widget.import_bro_requested.connect(self.open_bro_import_dialog)
 
         if not self.plot_dock:
             self.plot_dock = PastastorePlotDock(self.iface.mainWindow())
@@ -181,6 +188,10 @@ class PastastoreViewer:
     def run(self):
         """Run method that loads the dock widgets."""
         self.create_dock()
+
+        if self.store is None:
+            self._initialize_in_memory_store(notify=False)
+
         self.dock_widget.show()
         self.dock_widget.raise_()
         self.dock_widget.activateWindow()
@@ -240,16 +251,52 @@ class PastastoreViewer:
 
     def on_project_write(self):
         """Called when the project is being saved."""
-        if self.store and self.store_modified:
-            reply = QMessageBox.question(
-                self.iface.mainWindow(),
-                "Save Pastastore",
-                "The pastastore has been modified. Do you want to save it?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes,
-            )
-            if reply == QMessageBox.Yes:
-                self.save_pastastore()
+        self._prompt_save_if_needed()
+
+    def _should_prompt_save(self):
+        if not self.store:
+            return False
+
+        has_store_path = bool(self.dock_widget and self.dock_widget.store_path)
+        connector = getattr(self.store, "conn", None)
+        is_in_memory_store = (
+            connector is not None and connector.__class__.__name__ == "DictConnector"
+        )
+
+        return self.store_modified or (is_in_memory_store and not has_store_path)
+
+    def _get_save_prompt_text(self):
+        if self.store_modified:
+            return "The pastastore has been modified. Do you want to save it?"
+        return (
+            "The current pastastore is in-memory and has not been saved to a zip file. "
+            "Do you want to save it now?"
+        )
+
+    def _prompt_save_if_needed(self, allow_cancel=False):
+        if not self._should_prompt_save():
+            return True
+
+        buttons = QMessageBox.Yes | QMessageBox.No
+        if allow_cancel:
+            buttons |= QMessageBox.Cancel
+
+        reply = QMessageBox.question(
+            self.iface.mainWindow(),
+            "Save Pastastore",
+            self._get_save_prompt_text(),
+            buttons,
+            QMessageBox.Yes,
+        )
+        if allow_cancel and reply == QMessageBox.Cancel:
+            return False
+
+        if reply == QMessageBox.Yes:
+            self.save_pastastore()
+            if self._should_prompt_save():
+                return False
+
+        return True
 
     def open_settings(self):
         if not self.dock_widget:
@@ -290,7 +337,7 @@ class PastastoreViewer:
             )
 
         if filename:
-            if self.store:
+            if self.store and self._should_warn_before_replacing_store():
                 choice = QMessageBox(self.iface.mainWindow())
                 choice.setWindowTitle("Pastastore already loaded")
                 choice.setText(
@@ -312,6 +359,76 @@ class PastastoreViewer:
 
             if self.dock_widget:
                 self.dock_widget.save_state_to_project()
+
+    def new_pastastore(self):
+        if not HAS_PASTASTORE:
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Error",
+                "pastastore library not available. Bundle it in the plugin 'dependencies' folder or install it in the QGIS Python environment.",
+            )
+            return
+
+        if self.store and self._should_warn_before_replacing_store():
+            reply = QMessageBox.question(
+                self.iface.mainWindow(),
+                "Create New Pastastore",
+                "A pastastore is already loaded. Create a new empty pastastore and replace the current one?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        self._initialize_in_memory_store(notify=True)
+
+    def _store_has_content(self):
+        if not self.store:
+            return False
+
+        try:
+            has_oseries = hasattr(self.store, "oseries") and len(self.store.oseries.index) > 0
+            has_stresses = hasattr(self.store, "stresses") and len(self.store.stresses.index) > 0
+            has_models = hasattr(self.store, "model_names") and len(self.store.model_names) > 0
+            return has_oseries or has_stresses or has_models
+        except Exception:
+            return False
+
+    def _should_warn_before_replacing_store(self):
+        if not self.store:
+            return False
+
+        has_store_path = bool(self.dock_widget and self.dock_widget.store_path)
+        if has_store_path:
+            return self.store_modified
+
+        return self._store_has_content()
+
+    def _initialize_in_memory_store(self, notify=False):
+        try:
+            self.store = pst.PastaStore()
+            self.store_modified = False
+
+            self.load_layers_from_store()
+            if self.dock_widget:
+                self.dock_widget.populate_lists(self.store)
+                self.dock_widget.store_path = None
+                self.dock_widget.le_filename.setText("In-memory pastastore")
+                self.dock_widget.le_filename.setToolTip("In-memory pastastore")
+                self._set_active_layer_for_current_tab()
+                self.dock_widget.save_state_to_project()
+
+            if notify:
+                self.iface.messageBar().pushMessage(
+                    "Success", "Created new empty pastastore.", level=0
+                )
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to create new pastastore: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
 
     def save_pastastore(self):
         if not self.store:
@@ -1607,5 +1724,89 @@ class PastastoreViewer:
 
             self.iface.messageBar().pushMessage(
                 "Error", f"Failed to edit oseries: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def open_bro_import_dialog(self):
+        """Open the BRO import dialog."""
+        if not self.store:
+            self.iface.messageBar().pushMessage(
+                "Warning", "Please load a pastastore first.", level=1
+            )
+            return
+
+        try:
+            if self.bro_import_dialog is not None and self.bro_import_dialog.isVisible():
+                self.bro_import_dialog.raise_()
+                self.bro_import_dialog.activateWindow()
+                return
+
+            # Open BRO import dialog
+            dlg = BROImportDialog(self.iface.mainWindow(), self.iface)
+            self.bro_import_dialog = dlg
+
+            # Connect the signal to handle adding series to store
+            dlg.series_to_add.connect(self._add_bro_series_to_store)
+            dlg.finished.connect(lambda _: setattr(self, "bro_import_dialog", None))
+
+            dlg.setModal(False)
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to open BRO import dialog: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def _add_bro_series_to_store(self, series_dict):
+        """Add BRO series to the pastastore."""
+        if not self.store:
+            return
+
+        try:
+            added_count = 0
+            for series_name, series_info in series_dict.items():
+                df = series_info['data']
+                metadata = series_info.get('metadata', {})
+
+                # Convert DataFrame to Series if needed
+                if isinstance(df, pd.DataFrame):
+                    if 'value' in df.columns:
+                        series = df['value']
+                    elif 'stand' in df.columns:
+                        series = df['stand']
+                    else:
+                        series = df.iloc[:, 0]
+                else:
+                    series = df
+
+                # Add to store
+                self.store.add_oseries(series, name=series_name, metadata=metadata)
+                added_count += 1
+
+            self.store_modified = True
+
+            # Refresh the oseries list
+            if self.dock_widget:
+                self.dock_widget.populate_lists(self.store)
+                # Switch to oseries tab
+                self.dock_widget.tabs.setCurrentIndex(0)
+
+            # Refresh map layers to show the new oseries
+            self.load_layers_from_store()
+
+            self.iface.messageBar().pushMessage(
+                "Success", f"Added {added_count} series from BRO.", level=0
+            )
+
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to add BRO series to store: {str(e)}", level=2
             )
             print(traceback.format_exc())

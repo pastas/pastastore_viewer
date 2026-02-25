@@ -14,6 +14,8 @@ from qgis.PyQt.QtWidgets import (
     QHeaderView,
     QHBoxLayout,
     QLineEdit,
+    QMenu,
+    QToolButton,
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.core import QgsApplication
@@ -25,6 +27,7 @@ class PastastoreMainDock(QDockWidget):
     """Main Dock widget for loading and browsing Pastastore data."""
 
     load_requested = pyqtSignal(str)  # path (optional)
+    new_requested = pyqtSignal()
     item_selected = pyqtSignal(str, list)  # category, names (list)
     settings_requested = pyqtSignal()
     save_requested = pyqtSignal()
@@ -41,6 +44,7 @@ class PastastoreMainDock(QDockWidget):
     edit_oseries_requested = pyqtSignal(str)  # oseries name
     create_model_requested = pyqtSignal(str)  # oseries name
     create_models_requested = pyqtSignal(list)  # oseries names
+    import_bro_requested = pyqtSignal()  # Import from BRO
 
     def __init__(self, parent=None):
         super(PastastoreMainDock, self).__init__("Pastastore Viewer", parent)
@@ -74,6 +78,11 @@ class PastastoreMainDock(QDockWidget):
         self.btn_load.clicked.connect(lambda: self.load_requested.emit(""))
         top_layout.addWidget(self.btn_load)
 
+        # New Button
+        self.btn_new = QPushButton("New Pastastore")
+        self.btn_new.clicked.connect(lambda: self.new_requested.emit())
+        top_layout.addWidget(self.btn_new)
+
         # Save Button
         self.btn_save = QPushButton("Save Pastastore Zip")
         self.btn_save.clicked.connect(lambda: self.save_requested.emit())
@@ -88,7 +97,34 @@ class PastastoreMainDock(QDockWidget):
 
         # Tabs for lists
         self.tabs = QTabWidget()
+        
+        # Create oseries tab with toolbar
+        oseries_widget = QWidget()
+        oseries_layout = QVBoxLayout()
+        oseries_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Oseries table
         self.table_oseries = QTableWidget()
+        oseries_layout.addWidget(self.table_oseries)
+        
+        # Import button below oseries table
+        oseries_button_layout = QHBoxLayout()
+        self.btn_import = QToolButton()
+        self.btn_import.setText("Import Data")
+        self.btn_import.setIcon(QgsApplication.getThemeIcon("/mActionAdd.svg"))
+        self.btn_import.setToolTip("Import data from external sources")
+        self.btn_import.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        import_menu = QMenu()
+        import_bro_action = import_menu.addAction("Download from BRO")
+        import_bro_action.triggered.connect(lambda: self.import_bro_requested.emit())
+        self.btn_import.setMenu(import_menu)
+        self.btn_import.setPopupMode(QToolButton.InstantPopup)
+        oseries_button_layout.addWidget(self.btn_import)
+        oseries_button_layout.addStretch()
+        oseries_layout.addLayout(oseries_button_layout)
+        
+        oseries_widget.setLayout(oseries_layout)
+        
         self.table_stresses = QTableWidget()
         self.list_models = QListWidget()
         self.list_models.setSelectionMode(QListWidget.ExtendedSelection)
@@ -104,7 +140,7 @@ class PastastoreMainDock(QDockWidget):
             table.setSortingEnabled(True)
             table.setContextMenuPolicy(Qt.CustomContextMenu)
 
-        self.tabs.addTab(self.table_oseries, "Oseries")
+        self.tabs.addTab(oseries_widget, "Oseries")
         self.tabs.addTab(self.table_stresses, "Stresses")
         self.tabs.addTab(self.list_models, "Models")
 
