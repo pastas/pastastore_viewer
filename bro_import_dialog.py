@@ -252,7 +252,9 @@ class BROImportDialog(QDialog):
             ["Select", "Name", "Location", "Count", "Start", "End"]
         )
         self.table_series.verticalHeader().setVisible(False)
-        self.table_series.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table_series.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Interactive
+        )
         self.table_series.horizontalHeader().setStretchLastSection(True)
         self.table_series.setSelectionBehavior(QTableWidget.SelectRows)
         self.table_series.itemSelectionChanged.connect(self._on_series_selected)
@@ -666,7 +668,9 @@ class BROImportDialog(QDialog):
             return None
         return name_item.text()
 
-    def _apply_filter_selection_to_lists(self, filter_selection, select_all_if_empty=True):
+    def _apply_filter_selection_to_lists(
+        self, filter_selection, select_all_if_empty=True
+    ):
         mapping = [
             (self.list_status, set(filter_selection.get("status", []))),
             (self.list_qualifier, set(filter_selection.get("qualifier", []))),
