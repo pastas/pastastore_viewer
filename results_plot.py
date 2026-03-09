@@ -245,9 +245,9 @@ class ResultsPlotDialog(QDialog):
         p1 = self.win.addPlot(row=0, col=0, axisItems={"bottom": DateAxisItem()})
         try:
             r2_val = ml.stats.rsq()
-            p1.setTitle(f"Observations & Simulation (R²: {r2_val:.3f})")
+            p1.setTitle(f"Observations & Simulation (R²: {r2_val:.3f})", color="k")
         except:
-            p1.setTitle("Observations & Simulation (Not Solved)")
+            p1.setTitle("Observations & Simulation (Not Solved)", color="k")
         p1.addLegend()
         p1.showGrid(x=True, y=True)
         h1 = int(ranges[0] * pixels_per_unit) + OVERHEAD
@@ -269,7 +269,7 @@ class ResultsPlotDialog(QDialog):
         # Row 1: Residuals/Noise Plot
         p2 = self.win.addPlot(row=1, col=0, axisItems={"bottom": DateAxisItem()})
         p2_title = "Residuals & Noise" if noise is not None else "Residuals"
-        p2.setTitle(p2_title)
+        p2.setTitle(p2_title, color="k")
         p2.showGrid(x=True, y=True)
         p2.setXLink(p1)
         h2 = int(ranges[1] * pixels_per_unit) + OVERHEAD
@@ -376,7 +376,7 @@ class ResultsPlotDialog(QDialog):
             p_sm = self.win.addPlot(
                 row=row_idx, col=0, axisItems={"bottom": DateAxisItem()}
             )
-            p_sm.setTitle(f"Contribution: {contrib_name}")
+            p_sm.setTitle(f"Contribution: {contrib_name}", color="k")
             p_sm.showGrid(x=True, y=True)
             p_sm.setXLink(p1)
             h_sm = int(ranges[row_idx] * pixels_per_unit) + OVERHEAD
@@ -396,9 +396,9 @@ class ResultsPlotDialog(QDialog):
                 "Block Response" if self.show_block_response else "Step Response"
             )
             if stress_name:
-                p_rf.setTitle(f"{response_title}: {sm_name} ({stress_name})")
+                p_rf.setTitle(f"{response_title}: {sm_name} ({stress_name})", color="k")
             else:
-                p_rf.setTitle(f"{response_title}: {sm_name}")
+                p_rf.setTitle(f"{response_title}: {sm_name}", color="k")
             p_rf.showGrid(x=True, y=True)
             if self.show_block_response:
                 p_rf.setLogMode(x=True, y=False)
@@ -413,7 +413,15 @@ class ResultsPlotDialog(QDialog):
                 x_min = float(np.nanmin(x_resp))
                 x_max = float(np.nanmax(x_resp))
                 if np.isfinite(x_min) and np.isfinite(x_max) and x_min < x_max:
-                    p_rf.setXRange(x_min, x_max, padding=0)
+                    if self.show_block_response:
+                        x_arr = np.asarray(x_resp)
+                        mask = x_arr > 0
+                        if np.any(mask):
+                            log_x_min = float(np.log10(np.nanmin(x_arr[mask])))
+                            log_x_max = float(np.log10(np.nanmax(x_arr[mask])))
+                            p_rf.setXRange(log_x_min, log_x_max, padding=0)
+                    else:
+                        p_rf.setXRange(x_min, x_max, padding=0)
 
         # Final layout
         total_calculated_height = sum(h_list) + (len(h_list) - 1) * SPACING + MARGINS
@@ -434,10 +442,11 @@ class ResultsPlotDialog(QDialog):
                 ax.setTextPen("k")
 
         if main_col_plots:
-            for p in main_col_plots[:-1]:
-                ax = p.getAxis("bottom")
-                ax.setStyle(showValues=False)
-                ax.setHeight(0)
+            for i, p in enumerate(main_col_plots):
+                if i < len(main_col_plots) - 1:
+                    ax = p.getAxis("bottom")
+                    ax.setStyle(showValues=False)
+                    ax.setHeight(0)
 
 
 def get_stats(series):

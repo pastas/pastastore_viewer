@@ -13,7 +13,7 @@ import subprocess
 import sys
 
 
-DEFAULT_PACKAGES = ["pastastore", "pastas", "pyqtgraph"]
+DEFAULT_PACKAGES = ["pastastore", "pastas", "pyqtgraph", "brodata"]
 
 
 def ensure_pip_available() -> bool:
