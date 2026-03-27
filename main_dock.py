@@ -45,6 +45,7 @@ class PastastoreMainDock(QDockWidget):
     create_model_requested = pyqtSignal(str)  # oseries name
     create_models_requested = pyqtSignal(list)  # oseries names
     import_bro_requested = pyqtSignal()  # Import from BRO
+    import_knmi_requested = pyqtSignal()  # Import stresses from KNMI
 
     def __init__(self, parent=None):
         super(PastastoreMainDock, self).__init__("Pastastore Viewer", parent)
@@ -65,13 +66,13 @@ class PastastoreMainDock(QDockWidget):
         self.layout = QVBoxLayout()
         self.container.setLayout(self.layout)
 
-        # Top Actions Layout
-        top_layout = QHBoxLayout()
-
-        # Filename/Path Edit (Left of Load Button)
+        # Filename/Path Edit (full-width row)
         self.le_filename = QLineEdit()
         self.le_filename.setPlaceholderText("No store loaded")
-        top_layout.addWidget(self.le_filename)
+        self.layout.addWidget(self.le_filename)
+
+        # Top Actions Layout (row below filename)
+        top_layout = QHBoxLayout()
 
         # Load Button
         self.btn_load = QPushButton("Load Pastastore Zip")
@@ -125,7 +126,33 @@ class PastastoreMainDock(QDockWidget):
         
         oseries_widget.setLayout(oseries_layout)
         
+        # Create stresses tab with toolbar
+        stresses_widget = QWidget()
+        stresses_layout = QVBoxLayout()
+        stresses_layout.setContentsMargins(0, 0, 0, 0)
+
         self.table_stresses = QTableWidget()
+        stresses_layout.addWidget(self.table_stresses)
+
+        stresses_button_layout = QHBoxLayout()
+        self.btn_import_stresses = QToolButton()
+        self.btn_import_stresses.setText("Import Data")
+        self.btn_import_stresses.setIcon(QgsApplication.getThemeIcon("/mActionAdd.svg"))
+        self.btn_import_stresses.setToolTip("Import stress data from external sources")
+        self.btn_import_stresses.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        stresses_import_menu = QMenu()
+        import_knmi_action = stresses_import_menu.addAction("Download from KNMI")
+        import_knmi_action.triggered.connect(
+            lambda: self.import_knmi_requested.emit()
+        )
+        self.btn_import_stresses.setMenu(stresses_import_menu)
+        self.btn_import_stresses.setPopupMode(QToolButton.InstantPopup)
+        stresses_button_layout.addWidget(self.btn_import_stresses)
+        stresses_button_layout.addStretch()
+        stresses_layout.addLayout(stresses_button_layout)
+
+        stresses_widget.setLayout(stresses_layout)
+
         self.list_models = QListWidget()
         self.list_models.setSelectionMode(QListWidget.ExtendedSelection)
         self.list_models.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -141,7 +168,7 @@ class PastastoreMainDock(QDockWidget):
             table.setContextMenuPolicy(Qt.CustomContextMenu)
 
         self.tabs.addTab(oseries_widget, "Oseries")
-        self.tabs.addTab(self.table_stresses, "Stresses")
+        self.tabs.addTab(stresses_widget, "Stresses")
         self.tabs.addTab(self.list_models, "Models")
 
         self.table_oseries.itemSelectionChanged.connect(

@@ -96,6 +96,7 @@ class OseriesEditorDialog(QDialog):
         self._plot_index = None
         self._selected_mask = None
         self._syncing_selection = False
+        self._closing_from_prompt = False
 
         self.setWindowTitle(f"Edit Oseries: {oseries_name}")
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
@@ -531,3 +532,59 @@ class OseriesEditorDialog(QDialog):
     def get_modified_series(self):
         """Return the modified series."""
         return self.series_data
+
+    def _has_unsaved_changes(self):
+        """Return True when measurements differ from the original series."""
+        return not self.series_data.equals(self.original_data)
+
+    def keyPressEvent(self, event):
+        """Map Delete key to the same behavior as 'Remove Selected Points'."""
+        if event.key() == Qt.Key_Delete:
+            if self.table.selectedItems():
+                self.remove_selected()
+                event.accept()
+                return
+        super(OseriesEditorDialog, self).keyPressEvent(event)
+
+    def reject(self):
+        """Route reject through close to ensure unsaved-change prompt is shown."""
+        self.close()
+
+    def closeEvent(self, event):
+        """Prompt to keep or discard edits when closing with unsaved changes."""
+        if self._closing_from_prompt:
+            super(OseriesEditorDialog, self).closeEvent(event)
+            return
+
+        if not self._has_unsaved_changes():
+            super(OseriesEditorDialog, self).closeEvent(event)
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Unsaved Changes",
+            "Some measurements were edited. Keep these changes?",
+            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
+            QMessageBox.Yes,
+        )
+
+        if reply == QMessageBox.Yes:
+            self._closing_from_prompt = True
+            try:
+                self.accept()
+            finally:
+                self._closing_from_prompt = False
+            event.accept()
+            return
+
+        if reply == QMessageBox.No:
+            self._closing_from_prompt = True
+            try:
+                self.series_data = self.original_data.copy()
+                super(OseriesEditorDialog, self).reject()
+            finally:
+                self._closing_from_prompt = False
+            event.accept()
+            return
+
+        event.ignore()

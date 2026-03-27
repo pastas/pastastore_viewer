@@ -59,6 +59,7 @@ from .model_editor import ModelEditorDialog
 from .results_plot import ResultsPlotDialog
 from .oseries_editor import OseriesEditorDialog
 from .bro_import_dialog import BROImportDialog
+from .knmi_import_dialog import KNMIImportDialog
 from .bulk_models_dialog import BulkModelsDialog
 
 
@@ -77,6 +78,7 @@ class PastastoreViewer:
         self.is_updating_selection = False
         self.store_modified = False
         self.bro_import_dialog = None
+        self.knmi_import_dialog = None
 
     def tr(self, message):
         return QCoreApplication.translate("PastastoreViewer", message)
@@ -170,6 +172,7 @@ class PastastoreViewer:
                 self.create_models_from_oseries
             )
             self.dock_widget.import_bro_requested.connect(self.open_bro_import_dialog)
+            self.dock_widget.import_knmi_requested.connect(self.open_knmi_import_dialog)
 
         if not self.plot_dock:
             self.plot_dock = PastastorePlotDock(self.iface.mainWindow())
@@ -463,7 +466,8 @@ class PastastoreViewer:
             QApplication.processEvents()
 
             if hasattr(self.store, "to_zip"):
-                self.store.to_zip(filename)
+                # Avoid tqdm writing to a missing stderr stream in some QGIS runtimes.
+                self.store.to_zip(filename, progressbar=False, overwrite=True)
             elif hasattr(self.store, "to_file"):
                 self.store.to_file(filename)
             else:
@@ -821,6 +825,8 @@ class PastastoreViewer:
             print(err)
 
     def on_item_selected(self, category, names):
+        if names and self.plot_dock and not self.plot_dock.isVisible():
+            self.plot_dock.show()
         self.plot_item(category, names)
 
         try:
@@ -1762,6 +1768,50 @@ class PastastoreViewer:
             )
             print(traceback.format_exc())
 
+    def open_knmi_import_dialog(self):
+        """Open the KNMI import dialog."""
+        if not self.store:
+            self.iface.messageBar().pushMessage(
+                "Warning", "Please load a pastastore first.", level=1
+            )
+            return
+
+        try:
+            if (
+                self.knmi_import_dialog is not None
+                and self.knmi_import_dialog.isVisible()
+            ):
+                self.knmi_import_dialog.raise_()
+                self.knmi_import_dialog.activateWindow()
+                return
+
+            x_col = self.dock_widget.x_col if self.dock_widget else "x"
+            y_col = self.dock_widget.y_col if self.dock_widget else "y"
+            dlg = KNMIImportDialog(
+                self.store,
+                x_col=x_col,
+                y_col=y_col,
+                parent=self.iface.mainWindow(),
+                iface=self.iface,
+            )
+            self.knmi_import_dialog = dlg
+
+            dlg.stresses_to_add.connect(self._add_knmi_stresses_to_store)
+            dlg.finished.connect(lambda _: setattr(self, "knmi_import_dialog", None))
+
+            dlg.setModal(False)
+            dlg.show()
+            dlg.raise_()
+            dlg.activateWindow()
+
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to open KNMI import dialog: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
     def _add_bro_series_to_store(self, series_dict):
         """Add BRO series to the pastastore."""
         if not self.store:
@@ -1808,5 +1858,40 @@ class PastastoreViewer:
 
             self.iface.messageBar().pushMessage(
                 "Error", f"Failed to add BRO series to store: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def _add_knmi_stresses_to_store(self, stresses_dict):
+        """Add selected KNMI stresses from dialog to the pastastore."""
+        if not self.store:
+            return
+
+        try:
+            added_count = 0
+            for stress_name, stress_info in stresses_dict.items():
+                series = stress_info.get("series")
+                metadata = stress_info.get("metadata", {})
+                if series is None:
+                    continue
+                if self._add_stress_to_store(series, stress_name, metadata):
+                    added_count += 1
+
+            if added_count > 0:
+                self.store_modified = True
+                self.load_layers_from_store()
+                if self.dock_widget:
+                    self.dock_widget.populate_lists(self.store)
+                    self.dock_widget.tabs.setCurrentIndex(1)
+                    self._set_active_layer_for_current_tab()
+
+            self.iface.messageBar().pushMessage(
+                "Success", f"Added {added_count} KNMI stress series.", level=0
+            )
+
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to add KNMI stresses to store: {str(e)}", level=2
             )
             print(traceback.format_exc())

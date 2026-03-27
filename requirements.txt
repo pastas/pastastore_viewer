@@ -3,3 +3,4 @@ pandas
 numpy
 pyqtgraph
 brodata
+hydropandas
