@@ -24,6 +24,12 @@ from qgis.core import (
     QgsLayerTreeLayer,
     QgsFeatureRequest,
     QgsCoordinateReferenceSystem,
+    QgsGraduatedSymbolRenderer,
+    QgsStyle,
+    QgsMarkerSymbol,
+    QgsPalLayerSettings,
+    QgsVectorLayerSimpleLabeling,
+    QgsTextFormat,
 )
 import os.path
 import json
@@ -157,6 +163,7 @@ class PastastoreViewer:
             self.dock_widget.mpl_results_requested.connect(self.open_mpl_results_plot)
             self.dock_widget.mpl_diagnostics_requested.connect(self.open_mpl_diagnostics_plot)
             self.dock_widget.add_model_column_requested.connect(self.compute_model_stat_column)
+            self.dock_widget.map_plot_requested.connect(self.plot_model_values_on_map)
             self.dock_widget.select_models_for_oseries_requested.connect(
                 self.select_models_for_oseries
             )
@@ -964,7 +971,10 @@ class PastastoreViewer:
         selected_feats = layer.selectedFeatures()
         names = [f["name"] for f in selected_feats]
         if self.dock_widget:
-            self.dock_widget.select_items_in_list(pst_type, names)
+            if pst_type == "model_map_plot":
+                self.dock_widget.select_items_in_list("models", names, switch_tab=True)
+            else:
+                self.dock_widget.select_items_in_list(pst_type, names)
 
     def plot_item(self, category, names):
         if not self.store:
@@ -1513,6 +1523,242 @@ class PastastoreViewer:
         if self.dock_widget:
             self.dock_widget.set_model_column_values(stat, values)
 
+    def plot_model_values_on_map(self, var_key, ramp_name="RdYlGn", invert=False):
+        """Create a QGIS memory layer with model locations coloured by a stat or parameter."""
+        if not self.store or not var_key:
+            return
+
+        # --- Determine value type and label ---
+        if var_key.startswith("stat:"):
+            stat_key = var_key[5:]
+            label = next(
+                (lbl for lbl, s in self.dock_widget.AVAILABLE_MODEL_STATS if s == stat_key),
+                stat_key,
+            )
+            value_type = "stat"
+        elif var_key.startswith("param:"):
+            stat_key = var_key[6:]
+            label = stat_key
+            value_type = "param"
+        else:
+            return
+
+        x_col = self.dock_widget.x_col if self.dock_widget else "x"
+        y_col = self.dock_widget.y_col if self.dock_widget else "y"
+        crs_epsg = self.dock_widget.crs_epsg if self.dock_widget else "28992"
+
+        # --- Collect coordinates for each model ---
+        try:
+            model_oseries_names = {
+                m: self.store.get_models(m, return_dict=True)["oseries"]["name"]
+                for m in self.store.model_names
+            }
+        except Exception as e:
+            self.iface.messageBar().pushMessage(
+                "Map Plot Error", f"Could not read model locations: {e}", level=2
+            )
+            return
+
+        # --- Collect values ---
+        model_names = self.store.model_names
+        n = len(model_names)
+        progress = QProgressDialog(
+            f"Computing {label}…", "Cancel", 0, n, self.iface.mainWindow()
+        )
+        progress.setWindowTitle("Please wait")
+        progress.setWindowModality(Qt.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        QApplication.processEvents()
+
+        # --- Try to read cached stat values from the model table ---
+        cached_values = {}  # {model_name: float}
+        if value_type == "stat" and self.dock_widget:
+            if stat_key in self.dock_widget._model_extra_cols:
+                col_idx = self.dock_widget._model_extra_cols.index(stat_key) + 1
+                table = self.dock_widget.table_models
+                for row_i in range(table.rowCount()):
+                    name_item = table.item(row_i, 0)
+                    val_item = table.item(row_i, col_idx)
+                    if name_item and val_item:
+                        try:
+                            cached_values[name_item.text()] = float(val_item.data(Qt.DisplayRole))
+                        except (TypeError, ValueError):
+                            pass
+
+        records = []  # list of (name, x, y, value)
+        for i, mname in enumerate(model_names):
+            if progress.wasCanceled():
+                break
+            progress.setLabelText(f"Computing {label} for '{mname}' ({i + 1}/{n})…")
+            progress.setValue(i)
+            QApplication.processEvents()
+            try:
+                oseries_name = model_oseries_names.get(mname)
+                if oseries_name is None:
+                    continue
+                row = self.store.oseries.loc[oseries_name]
+                x = float(row[x_col])
+                y = float(row[y_col])
+                if np.isnan(x) or np.isnan(y):
+                    continue
+                if mname in cached_values:
+                    val = cached_values[mname]
+                elif value_type == "stat":
+                    ml = self.store.get_models(mname)
+                    if not ml.parameters["optimal"].notna().any():
+                        val = float("nan")
+                    else:
+                        val = float(getattr(ml.stats, stat_key)())
+                else:  # param
+                    ml = self.store.get_models(mname)
+                    params = ml.parameters["optimal"]
+                    val = float(params.get(stat_key, float("nan")))
+                records.append((mname, x, y, val))
+            except Exception:
+                pass
+
+        progress.setValue(n)
+
+        valid_records = [(n, x, y, v) for n, x, y, v in records if not np.isnan(v)]
+        if not valid_records:
+            self.iface.messageBar().pushMessage(
+                "Map Plot", f"No valid values to plot for '{label}'.", level=1
+            )
+            return
+
+        # --- Assign marker sizes for co-located models ---
+        # Group by (x, y); sort names ascending so name_1 < name_2 < name_3.
+        # name_3 (bottom) gets largest marker; name_1 (top) gets smallest.
+        # Base size 5 pt, each deeper layer adds 3 pt.
+        BASE_SIZE = 5.0
+        SIZE_STEP = 3.0
+        from collections import defaultdict
+        loc_groups = defaultdict(list)
+        for rec in valid_records:
+            loc_groups[(rec[1], rec[2])].append(rec)
+        # Sort each group by name ascending
+        for key in loc_groups:
+            loc_groups[key].sort(key=lambda r: r[0])
+
+        # Cycling quadrant positions (QGIS QuadrantPosition enum):
+        #   2=AboveRight, 0=AboveLeft, 6=BelowLeft, 8=BelowRight
+        QUADRANT_CYCLE = [2, 0, 6, 8]
+        # x/y sign per quadrant so the offset moves the label away from centre
+        QUAD_SIGNS = [(1, 1), (-1, 1), (-1, -1), (1, -1)]
+
+        records_with_size = []  # (name, x, y, value, marker_size, lbl_quadrant, lbl_off_x, lbl_off_y)
+        for (x, y), group in loc_groups.items():
+            for rank, (mname, rx, ry, val) in enumerate(group):
+                # rank 0 = name_1 = smallest marker, rendered on top
+                # rank n-1 = name_n = largest marker, rendered at bottom
+                marker_size = BASE_SIZE + rank * SIZE_STEP
+                quad_idx = rank % 4
+                lbl_quadrant = QUADRANT_CYCLE[quad_idx]
+                xsign, ysign = QUAD_SIGNS[quad_idx]
+                # Push label outside circle: radius (mm) + 1 mm padding
+                offset_mm = marker_size / 2.0 + 1.0
+                lbl_off_x = xsign * offset_mm
+                lbl_off_y = ysign * offset_mm
+                records_with_size.append(
+                    (mname, rx, ry, val, marker_size, lbl_quadrant, lbl_off_x, lbl_off_y)
+                )
+
+        # Sort so larger markers are added first (rendered first = underneath)
+        records_with_size.sort(key=lambda r: -r[4])
+
+        # --- Build memory layer ---
+        layer_name = f"Models: {label}"
+        crs = QgsCoordinateReferenceSystem(f"EPSG:{crs_epsg}")
+        vl = QgsVectorLayer(f"Point?crs={crs.authid()}", layer_name, "memory")
+        vl.setCustomProperty("skipMemoryLayersCheck", 1)
+        vl.setCustomProperty("pastastore_type", "model_map_plot")
+        pr = vl.dataProvider()
+        pr.addAttributes([
+            QgsField("name", QVariant.String),
+            QgsField("value", QVariant.Double),
+            QgsField("marker_size", QVariant.Double),
+            QgsField("lbl_quadrant", QVariant.Int),
+            QgsField("lbl_off_x", QVariant.Double),
+            QgsField("lbl_off_y", QVariant.Double),
+        ])
+        vl.updateFields()
+
+        feats = []
+        for mname, x, y, val, msize, lbl_q, lbl_x, lbl_y in records_with_size:
+            feat = QgsFeature()
+            feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+            feat.setAttributes([mname, val, msize, lbl_q, lbl_x, lbl_y])
+            feats.append(feat)
+        pr.addFeatures(feats)
+        vl.updateExtents()
+
+        # --- Graduated renderer with chosen colour ramp ---
+        from qgis.core import QgsProperty, QgsSymbolLayer
+
+        color_ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
+        if color_ramp is None:
+            color_ramp = QgsStyle.defaultStyle().colorRamp("RdYlGn")
+        if color_ramp is None:
+            color_ramp = QgsStyle.defaultStyle().colorRamp("Spectral")
+        if invert and color_ramp is not None:
+            color_ramp.invert()
+
+        renderer = QgsGraduatedSymbolRenderer("value", [])
+        renderer.setClassAttribute("value")
+        renderer.setSourceColorRamp(color_ramp)
+        n_classes = min(7, len(records_with_size))
+        renderer.updateClasses(vl, QgsGraduatedSymbolRenderer.Quantile, n_classes)
+        renderer.updateColorRamp(color_ramp)
+        # Apply data-defined size override on every class symbol.
+        # range_obj.symbol() returns a clone, so we must clone → modify → updateRangeSymbol.
+        size_prop = QgsProperty.fromField("marker_size")
+        for i, range_obj in enumerate(renderer.ranges()):
+            sym = range_obj.symbol().clone()
+            sym.setSize(BASE_SIZE)
+            sl = sym.symbolLayer(0)
+            if sl:
+                sl.setDataDefinedProperty(QgsSymbolLayer.PropertySize, size_prop)
+            renderer.updateRangeSymbol(i, sym)
+        vl.setRenderer(renderer)
+
+        # --- Labels (value with 3 decimal places, placed outside circles) ---
+        label_settings = QgsPalLayerSettings()
+        label_settings.enabled = True
+        label_settings.fieldName = 'format_number("value", 3)'
+        label_settings.isExpression = True
+        label_settings.placement = QgsPalLayerSettings.OverPoint
+        tf = QgsTextFormat()
+        label_settings.setFormat(tf)
+        # Data-defined quadrant and XY offset so labels sit outside their circle
+        dp = label_settings.dataDefinedProperties()
+        dp.setProperty(
+            QgsPalLayerSettings.OffsetQuad,
+            QgsProperty.fromField("lbl_quadrant"),
+        )
+        dp.setProperty(
+            QgsPalLayerSettings.OffsetXY,
+            QgsProperty.fromExpression('"lbl_off_x" || \',\' || "lbl_off_y"'),
+        )
+        label_settings.setDataDefinedProperties(dp)
+        labeling = QgsVectorLayerSimpleLabeling(label_settings)
+        vl.setLabelsEnabled(True)
+        vl.setLabeling(labeling)
+
+        # --- Add to project under Pastastore group ---
+        root = QgsProject.instance().layerTreeRoot()
+        group = root.findGroup("Pastastore")
+        if group is None:
+            group = root.addGroup("Pastastore")
+
+        # Remove existing layer with same name
+        for existing in QgsProject.instance().mapLayersByName(layer_name):
+            QgsProject.instance().removeMapLayer(existing.id())
+
+        QgsProject.instance().addMapLayer(vl, False)
+        group.insertLayer(0, vl)
+        self.iface.mapCanvas().refresh()
+
     def open_mpl_results_plot(self, model_name):
         if not self.store:
             return
@@ -1521,7 +1767,7 @@ class PastastoreViewer:
             import matplotlib.pyplot as plt
 
             ml = self.store.get_models(model_name)
-            ml.plots.results()
+            ml.plots.results(split=True)
             plt.show()
         except Exception as e:
             import traceback

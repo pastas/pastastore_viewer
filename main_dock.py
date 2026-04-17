@@ -15,9 +15,13 @@ from qgis.PyQt.QtWidgets import (
     QLineEdit,
     QMenu,
     QToolButton,
+    QComboBox,
+    QGroupBox,
+    QCheckBox,
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
-from qgis.core import QgsApplication
+from qgis.PyQt.QtGui import QLinearGradient, QPainter, QPixmap
+from qgis.core import QgsApplication, QgsStyle
 import pandas as pd
 import numpy as np
 
@@ -40,6 +44,7 @@ class PastastoreMainDock(QDockWidget):
     mpl_results_requested = pyqtSignal(str)  # model name (matplotlib)
     mpl_diagnostics_requested = pyqtSignal(str)  # model name (matplotlib)
     add_model_column_requested = pyqtSignal(str)  # stat name to compute
+    map_plot_requested = pyqtSignal(str, str, bool)  # var_key, ramp_name, invert
     select_models_for_oseries_requested = pyqtSignal(list)  # oseries names
     select_models_for_stresses_requested = pyqtSignal(list)  # stresses names
     select_oseries_for_models_requested = pyqtSignal(list)  # model names
@@ -171,14 +176,68 @@ class PastastoreMainDock(QDockWidget):
         self.table_models.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table_models.setSortingEnabled(True)
         self.table_models.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table_models.setColumnCount(1)
-        self.table_models.setHorizontalHeaderLabels(["Name"])
+        self.table_models.setColumnCount(2)
+        self.table_models.setHorizontalHeaderLabels(["Name", "Oseries"])
         # Right-click on header to add/remove stat columns
         self.table_models.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
         self.table_models.horizontalHeader().customContextMenuRequested.connect(
             self._show_models_header_menu
         )
         models_layout.addWidget(self.table_models)
+
+        # Map plot pane
+        map_plot_group = QGroupBox("Plot on Map")
+        map_plot_layout = QVBoxLayout()
+        map_plot_layout.setContentsMargins(4, 4, 4, 4)
+        map_plot_layout.setSpacing(4)
+
+        var_row = QHBoxLayout()
+        var_row.addWidget(QLabel("Variable:"))
+        self.combo_map_var = QComboBox()
+        self.combo_map_var.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_map_var.setMinimumContentsLength(10)
+        var_row.addWidget(self.combo_map_var, 1)
+        map_plot_layout.addLayout(var_row)
+
+        ramp_row = QHBoxLayout()
+        ramp_row.addWidget(QLabel("Color ramp:"))
+        self.combo_map_ramp = QComboBox()
+        ramp_names = [
+            "RdYlGn", "Turbo", "Viridis", "Plasma", "Magma", "Inferno",
+            "RdYlBu", "Spectral", "Blues", "Reds",
+        ]
+        for ramp_name in ramp_names:
+            self.combo_map_ramp.addItem(ramp_name, ramp_name)
+        ramp_row.addWidget(self.combo_map_ramp, 1)
+        self.chk_map_invert = QCheckBox("Invert")
+        self.chk_map_invert.setChecked(False)
+        ramp_row.addWidget(self.chk_map_invert)
+        map_plot_layout.addLayout(ramp_row)
+
+        self.lbl_ramp_preview = QLabel()
+        self.lbl_ramp_preview.setFixedHeight(18)
+        self.lbl_ramp_preview.setSizePolicy(
+            self.lbl_ramp_preview.sizePolicy().horizontalPolicy(),
+            self.lbl_ramp_preview.sizePolicy().verticalPolicy(),
+        )
+        map_plot_layout.addWidget(self.lbl_ramp_preview)
+        self.combo_map_ramp.currentIndexChanged.connect(self._update_ramp_preview)
+        self.chk_map_invert.toggled.connect(self._update_ramp_preview)
+        self._update_ramp_preview()
+
+        self.btn_map_plot = QPushButton("Plot on Map")
+        self.btn_map_plot.clicked.connect(
+            lambda: self.map_plot_requested.emit(
+                self.combo_map_var.currentData() or "",
+                self.combo_map_ramp.currentData() or "Turbo",
+                self.chk_map_invert.isChecked(),
+            )
+        )
+        map_plot_layout.addWidget(self.btn_map_plot)
+
+        map_plot_group.setLayout(map_plot_layout)
+        models_layout.addWidget(map_plot_group)
+
         models_widget.setLayout(models_layout)
 
         for table in [self.table_oseries, self.table_stresses]:
@@ -300,14 +359,14 @@ class PastastoreMainDock(QDockWidget):
             return
         idx = self._model_extra_cols.index(stat)
         self._model_extra_cols.remove(stat)
-        # +1 because column 0 is Name
-        self.table_models.removeColumn(idx + 1)
+        # +2 because columns 0,1 are Name and Oseries
+        self.table_models.removeColumn(idx + 2)
 
     def set_model_column_values(self, stat, values):
         """Fill a stat column with computed values. values is a dict {model_name: value}."""
         if stat not in self._model_extra_cols:
             return
-        col = self._model_extra_cols.index(stat) + 1  # +1 for Name
+        col = self._model_extra_cols.index(stat) + 2  # +2 for Name + Oseries
         self.table_models.setSortingEnabled(False)
         for row in range(self.table_models.rowCount()):
             name_item = self.table_models.item(row, 0)
@@ -555,8 +614,17 @@ class PastastoreMainDock(QDockWidget):
         # Models Table
         if hasattr(store, "model_names") and len(store.model_names) > 0:
             model_names = sorted(store.model_names)
+            # Build oseries-name lookup from store metadata
+            oseries_lookup = {}
+            try:
+                # oseries_models is {oseries_name: [model_name, ...]}
+                for oname, mnames in store.oseries_models.items():
+                    for mname in mnames:
+                        oseries_lookup[mname] = oname
+            except Exception:
+                pass
             # Rebuild column headers preserving extra cols
-            headers = ["Name"] + [
+            headers = ["Name", "Oseries"] + [
                 next((lbl for lbl, s in self.AVAILABLE_MODEL_STATS if s == stat), stat)
                 for stat in self._model_extra_cols
             ]
@@ -565,13 +633,57 @@ class PastastoreMainDock(QDockWidget):
             self.table_models.setRowCount(len(model_names))
             for i, name in enumerate(model_names):
                 self.table_models.setItem(i, 0, QTableWidgetItem(name))
+                oseries_name = str(oseries_lookup.get(name, ""))
+                self.table_models.setItem(i, 1, QTableWidgetItem(oseries_name))
                 for j, stat in enumerate(self._model_extra_cols):
-                    self.table_models.setItem(i, j + 1, QTableWidgetItem("…"))
+                    self.table_models.setItem(i, j + 2, QTableWidgetItem("…"))
             self.table_models.setColumnWidth(0, 200)
+            self.table_models.setColumnWidth(1, 200)
             self.table_models.setSortingEnabled(True)
             # Re-request computation for all extra cols
             for stat in self._model_extra_cols:
                 self.add_model_column_requested.emit(stat)
+
+            # Populate map plot combo with stats + parameters from store
+            try:
+                param_names = list(store.get_parameters(progressbar=False).columns)
+            except Exception:
+                param_names = []
+            self.populate_map_plot_combo(param_names)
+
+    def _update_ramp_preview(self):
+        """Render a gradient pixmap for the currently selected color ramp."""
+        ramp_name = self.combo_map_ramp.currentData() or "Turbo"
+        invert = self.chk_map_invert.isChecked()
+        ramp = QgsStyle.defaultStyle().colorRamp(ramp_name)
+        if ramp is None:
+            self.lbl_ramp_preview.clear()
+            return
+        if invert:
+            ramp.invert()
+        w, h = max(self.lbl_ramp_preview.width(), 256), 18
+        pixmap = QPixmap(w, h)
+        painter = QPainter(pixmap)
+        gradient = QLinearGradient(0, 0, w, 0)
+        for i in range(21):
+            t = i / 20
+            c = ramp.color(t)
+            gradient.setColorAt(t, c)
+        painter.fillRect(pixmap.rect(), gradient)
+        painter.end()
+        self.lbl_ramp_preview.setPixmap(pixmap)
+
+    def populate_map_plot_combo(self, param_names=None):
+        """Fill the map-plot variable combobox with available stats and parameters."""
+        self.combo_map_var.blockSignals(True)
+        self.combo_map_var.clear()
+        for label, stat in self.AVAILABLE_MODEL_STATS:
+            self.combo_map_var.addItem(label, f"stat:{stat}")
+        if param_names:
+            self.combo_map_var.insertSeparator(self.combo_map_var.count())
+            for pname in param_names:
+                self.combo_map_var.addItem(pname, f"param:{pname}")
+        self.combo_map_var.blockSignals(False)
 
     def get_selected_names(self, category):
         if category == "oseries":
@@ -632,7 +744,7 @@ class PastastoreMainDock(QDockWidget):
                 if not names:
                     return
 
-                if isinstance(list_widget, (QTableWidget, QListWidget)):
+                if isinstance(list_widget, QTableWidget):
                     from qgis.PyQt.QtCore import QItemSelectionModel
 
                     selection_model = list_widget.selectionModel()
