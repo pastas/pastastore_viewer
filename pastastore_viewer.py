@@ -516,8 +516,15 @@ class PastastoreViewer:
                 sys.stderr = io.StringIO()
 
             import traceback
+            from pastastore.base import BaseConnector
 
             try:
+                # Reset the class-level _added_models list before loading a new
+                # store. This list is shared across all connector instances, so
+                # stale model names from a previously loaded store would otherwise
+                # cause a KeyError when _trigger_links_update_if_needed runs on
+                # the freshly created connector.
+                BaseConnector._added_models = []
                 self.store = pst.PastaStore.from_zip(filename)
                 self.store_modified = False
                 self.load_layers_from_store()
