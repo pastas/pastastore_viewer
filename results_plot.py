@@ -12,7 +12,7 @@ from qgis.PyQt.QtWidgets import (
     QMenu,
     QAction,
 )
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.core import QgsProject
 import pyqtgraph as pg
 from pyqtgraph import DateAxisItem
@@ -38,7 +38,11 @@ class ResultsPlotDialog(QDialog):
         self.spacing = 10
         self.margins = 10
         self.y_axis_width = 40
-        self.pixels_per_unit = 300
+
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(60)
+        self._resize_timer.timeout.connect(self.plot_results)
 
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(5, 5, 5, 5)
@@ -98,6 +102,11 @@ class ResultsPlotDialog(QDialog):
         self.main_layout.addWidget(self.scroll)
 
         self.plot_results()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, '_resize_timer'):
+            self._resize_timer.start()
 
     def load_settings(self):
         proj = QgsProject.instance()
@@ -218,13 +227,38 @@ class ResultsPlotDialog(QDialog):
         for c in sm_contribs:
             ylims.append(get_series_stats_local(c))
 
+        if not ylims:
+            p = self.win.addPlot(row=0, col=0)
+            p.setTitle("No data to display", color="r")
+            self.win.setMinimumHeight(100)
+            self.win.setMaximumHeight(100)
+            return
+
         ranges = [y[1] - y[0] if y[1] != y[0] else 0.001 for y in ylims]
         total_data_range = sum(ranges)
         num_plots = len(ylims)
-        total_overhead = (num_plots * OVERHEAD) + ((num_plots - 1) * SPACING) + MARGINS
 
-        available_data_height = (self.height() - 100) - total_overhead
-        pixels_per_unit = max(100, min(available_data_height / total_data_range, 2000))
+        # Use actual viewport height if available (after first show),
+        # else fall back to dialog height minus toolbar (resize(1200,900) is set in __init__).
+        viewport_h = self.scroll.viewport().height()
+        if viewport_h < 50:
+            toolbar_h = self.toolbar_layout.sizeHint().height() or 30
+            m = self.main_layout.contentsMargins()
+            viewport_h = max(self.height() - toolbar_h - m.top() - m.bottom() - 15, 200)
+
+        total_overhead = num_plots * OVERHEAD + max(num_plots - 1, 0) * SPACING + MARGINS
+        available_data_h = max(viewport_h - total_overhead, num_plots * 5)
+        ppu = available_data_h / total_data_range if total_data_range > 0 else 50.0
+
+        # Float heights — equal ppu guarantees equal vertical scale
+        float_heights = [r * ppu + OVERHEAD for r in ranges]
+        # Absorb any rounding gap in the last row so total == viewport_h exactly
+        raw_sum = sum(float_heights) + max(num_plots - 1, 0) * SPACING + MARGINS
+        float_heights[-1] += viewport_h - raw_sum
+        row_heights = [max(30, int(round(h))) for h in float_heights]
+        # After rounding, fix residual to last row
+        rounded_sum = sum(row_heights) + max(num_plots - 1, 0) * SPACING + MARGINS
+        row_heights[-1] += viewport_h - rounded_sum
 
         sm_colors = [
             "#ff7f0e",
@@ -250,7 +284,7 @@ class ResultsPlotDialog(QDialog):
             p1.setTitle("Observations & Simulation (Not Solved)", color="k")
         p1.addLegend()
         p1.showGrid(x=True, y=True)
-        h1 = int(ranges[0] * pixels_per_unit) + OVERHEAD
+        h1 = row_heights[0]
         p1.setMinimumHeight(h1)
         p1.setMaximumHeight(h1)
         p1.setYRange(ylims[0][0], ylims[0][1], padding=0)
@@ -272,7 +306,7 @@ class ResultsPlotDialog(QDialog):
         p2.setTitle(p2_title, color="k")
         p2.showGrid(x=True, y=True)
         p2.setXLink(p1)
-        h2 = int(ranges[1] * pixels_per_unit) + OVERHEAD
+        h2 = row_heights[1]
         p2.setMinimumHeight(h2)
         p2.setMaximumHeight(h2)
         p2.setYRange(ylims[1][0], ylims[1][1], padding=0)
@@ -379,7 +413,7 @@ class ResultsPlotDialog(QDialog):
             p_sm.setTitle(f"Contribution: {contrib_name}", color="k")
             p_sm.showGrid(x=True, y=True)
             p_sm.setXLink(p1)
-            h_sm = int(ranges[row_idx] * pixels_per_unit) + OVERHEAD
+            h_sm = row_heights[row_idx]
             p_sm.setMinimumHeight(h_sm)
             p_sm.setMaximumHeight(h_sm)
             p_sm.setYRange(ylims[row_idx][0], ylims[row_idx][1], padding=0)
@@ -423,12 +457,10 @@ class ResultsPlotDialog(QDialog):
                     else:
                         p_rf.setXRange(x_min, x_max, padding=0)
 
-        # Final layout
-        total_calculated_height = sum(h_list) + (len(h_list) - 1) * SPACING + MARGINS
-        viewport_height = self.scroll.viewport().height()
-        target_height = max(total_calculated_height, viewport_height)
-        self.win.setMinimumHeight(target_height)
-        self.win.setMaximumHeight(target_height)
+        # Set win to exactly fill the viewport — no empty space, no extra scroll
+        win_height = sum(row_heights) + max(num_plots - 1, 0) * SPACING + MARGINS
+        self.win.setMinimumHeight(win_height)
+        self.win.setMaximumHeight(win_height)
         self.win.ci.layout.setColumnStretchFactor(0, 3)
         self.win.ci.layout.setColumnStretchFactor(1, 1)
 

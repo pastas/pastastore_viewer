@@ -32,9 +32,6 @@ class PastastorePlotDock(QDockWidget):
         self.layout = QVBoxLayout()
         self.container.setLayout(self.layout)
 
-        self.plot_nav = PlotNavigationWidget(parent=self)
-        self.layout.addWidget(self.plot_nav)
-
         # Plot Widget
         if pg:
             self.plot_widget = pg.PlotWidget(axisItems={"bottom": DateAxisItem()})
@@ -49,8 +46,11 @@ class PastastorePlotDock(QDockWidget):
 
             self.layout.addWidget(self.plot_widget)
 
+            self.plot_nav = PlotNavigationWidget()
             self.plot_nav.set_plots([self.plot_widget])
+            self.plot_nav.attach_to(self.plot_widget)
         else:
+            self.plot_nav = PlotNavigationWidget()
             self.layout.addWidget(QLabel("pyqtgraph missing"))
 
         self.setWidget(self.container)

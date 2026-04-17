@@ -1,5 +1,5 @@
 from qgis.PyQt.QtWidgets import QWidget, QHBoxLayout, QPushButton, QSizePolicy
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QEvent
 from qgis.core import QgsApplication
 
 
@@ -106,3 +106,31 @@ class PlotNavigationWidget(QWidget):
             vb = plot.getViewBox()
             vb.enableAutoRange(axis=vb.XYAxes, enable=True)
             vb.autoRange(padding=0.02)
+
+    # ------------------------------------------------------------------
+    # Overlay support
+    # ------------------------------------------------------------------
+
+    def attach_to(self, widget, offset=(4, 4)):
+        """Re-parent and overlay this toolbar at the top-left of *widget*."""
+        self._anchor_widget = widget
+        self._anchor_offset = offset
+        self.setParent(widget)
+        self.setStyleSheet(
+            "PlotNavigationWidget {"
+            "  background: rgba(255,255,255,200);"
+            "  border-radius: 4px;"
+            "  padding: 2px;"
+            "}"
+        )
+        self.adjustSize()
+        self.move(offset[0], offset[1])
+        self.raise_()
+        self.show()
+        widget.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if obj is getattr(self, "_anchor_widget", None) and event.type() == QEvent.Resize:
+            self.move(self._anchor_offset[0], self._anchor_offset[1])
+            self.raise_()
+        return False
