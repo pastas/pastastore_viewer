@@ -40,6 +40,9 @@ except ImportError:
 class KNMIImportDialog(QDialog):
     """Dialog for importing KNMI precipitation/evaporation stresses."""
 
+    class _KNMIDownloadCanceled(Exception):
+        pass
+
     stresses_to_add = pyqtSignal(dict)  # {name: {series, metadata}}
 
     def __init__(self, store, x_col="x", y_col="y", parent=None, iface=None):
@@ -49,6 +52,9 @@ class KNMIImportDialog(QDialog):
         self.x_col = x_col
         self.y_col = y_col
         self.downloaded_stresses = {}  # {name: {series, metadata}}
+        self._knmi_progress_dialog = None
+        self._knmi_progress_calls = 0
+        self._knmi_progress_expected = 0
 
         self.setWindowTitle("Import from KNMI")
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
@@ -369,6 +375,35 @@ class KNMIImportDialog(QDialog):
         )
         self.plot_widget.enableAutoRange(axis=self.plot_widget.plotItem.vb.XYAxes)
 
+    def _on_knmi_download_progress(self, current, total):
+        if not self._knmi_progress_dialog:
+            return
+
+        if self._knmi_progress_dialog.wasCanceled():
+            raise self._KNMIDownloadCanceled()
+
+        try:
+            current = int(current)
+            total = int(total)
+        except (TypeError, ValueError):
+            return
+
+        self._knmi_progress_calls += 1
+        if self._knmi_progress_expected > 0:
+            ratio = max(
+                0.0,
+                min(1.0, float(self._knmi_progress_calls) / self._knmi_progress_expected),
+            )
+        else:
+            ratio = max(0.0, min(1.0, float(current + 1) / max(total, 1)))
+
+        progress = 5 + int(ratio * 85)
+        self._knmi_progress_dialog.setLabelText(
+            f"Downloading KNMI observations {min(current + 1, total)}/{total}..."
+        )
+        self._knmi_progress_dialog.setValue(progress)
+        QApplication.processEvents()
+
     def download_knmi(self):
         if not HAS_HYDROPANDAS:
             QMessageBox.warning(
@@ -421,12 +456,17 @@ class KNMIImportDialog(QDialog):
         if reply != QMessageBox.Yes:
             return
 
-        busy = QProgressDialog("Downloading KNMI stresses...", None, 0, 0, self)
-        busy.setWindowTitle("Please wait")
-        busy.setWindowModality(Qt.ApplicationModal)
-        busy.setMinimumDuration(0)
-        busy.setCancelButton(None)
-        busy.show()
+        self._knmi_progress_calls = 0
+        self._knmi_progress_expected = max(1, len(locations) * len(selected_vars))
+
+        self._knmi_progress_dialog = QProgressDialog(
+            "Downloading KNMI stresses...", "Cancel", 0, 100, self
+        )
+        self._knmi_progress_dialog.setWindowTitle("KNMI Download")
+        self._knmi_progress_dialog.setWindowModality(Qt.ApplicationModal)
+        self._knmi_progress_dialog.setMinimumDuration(0)
+        self._knmi_progress_dialog.setValue(0)
+        self._knmi_progress_dialog.show()
         QApplication.processEvents()
 
         self.downloaded_stresses = {}
@@ -440,7 +480,16 @@ class KNMIImportDialog(QDialog):
                 fill_missing_obs=fill_missing_obs,
                 interval=interval,
                 raise_exceptions=False,
+                progress_callback=self._on_knmi_download_progress,
             )
+
+            if self._knmi_progress_dialog and self._knmi_progress_dialog.wasCanceled():
+                return
+
+            if self._knmi_progress_dialog:
+                self._knmi_progress_dialog.setLabelText("Processing downloaded observations...")
+                self._knmi_progress_dialog.setValue(92)
+                QApplication.processEvents()
 
             if knmi_oc is None or knmi_oc.empty:
                 failed.append("No KNMI observations returned.")
@@ -494,6 +543,11 @@ class KNMIImportDialog(QDialog):
             self._populate_table()
             self.btn_add_store.setEnabled(len(self.downloaded_stresses) > 0)
 
+            if self._knmi_progress_dialog:
+                self._knmi_progress_dialog.setLabelText("Updating table...")
+                self._knmi_progress_dialog.setValue(95)
+                QApplication.processEvents()
+
             if self.table_stresses.rowCount() > 0:
                 self.table_stresses.selectRow(0)
 
@@ -510,11 +564,18 @@ class KNMIImportDialog(QDialog):
                     f"Downloaded {len(self.downloaded_stresses)} stress series. "
                     f"Failed for {len(failed)} oseries.",
                 )
+        except self._KNMIDownloadCanceled:
+            return
         finally:
             try:
-                busy.close()
+                if self._knmi_progress_dialog:
+                    self._knmi_progress_dialog.setValue(100)
+                    self._knmi_progress_dialog.close()
             except Exception:
                 pass
+            self._knmi_progress_dialog = None
+            self._knmi_progress_calls = 0
+            self._knmi_progress_expected = 0
 
     def _populate_table(self):
         self.table_stresses.setRowCount(0)
