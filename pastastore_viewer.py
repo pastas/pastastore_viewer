@@ -57,6 +57,7 @@ from .plot_dock import PastastorePlotDock
 from .settings_dialog import PastastoreSettingsDialog
 from .model_editor import ModelEditorDialog
 from .results_plot import ResultsPlotDialog
+from .diagnostics_plot import DiagnosticsPlotDialog
 from .oseries_editor import OseriesEditorDialog
 from .bro_import_dialog import BROImportDialog
 from .knmi_import_dialog import KNMIImportDialog
@@ -152,6 +153,10 @@ class PastastoreViewer:
             self.dock_widget.delete_stresses_requested.connect(self.delete_stresses)
             self.dock_widget.edit_model_requested.connect(self.open_model_editor)
             self.dock_widget.results_requested.connect(self.open_results_plot)
+            self.dock_widget.diagnostics_requested.connect(self.open_diagnostics_plot)
+            self.dock_widget.mpl_results_requested.connect(self.open_mpl_results_plot)
+            self.dock_widget.mpl_diagnostics_requested.connect(self.open_mpl_diagnostics_plot)
+            self.dock_widget.add_model_column_requested.connect(self.compute_model_stat_column)
             self.dock_widget.select_models_for_oseries_requested.connect(
                 self.select_models_for_oseries
             )
@@ -1438,6 +1443,109 @@ class PastastoreViewer:
 
             self.iface.messageBar().pushMessage(
                 "Error", f"Failed to show results: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def open_diagnostics_plot(self, model_name):
+        if not self.store:
+            return
+
+        try:
+            ml = self.store.get_models(model_name)
+            dlg = DiagnosticsPlotDialog(ml, self.iface.mainWindow())
+            dlg.show()
+
+            if not hasattr(self, "_diagnostics_plots"):
+                self._diagnostics_plots = []
+            self._diagnostics_plots.append(dlg)
+
+            dlg.finished.connect(
+                lambda: (
+                    self._diagnostics_plots.remove(dlg)
+                    if dlg in self._diagnostics_plots
+                    else None
+                )
+            )
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to show diagnostics: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def compute_model_stat_column(self, stat):
+        """Compute a statistic for all models and populate the column in the dock."""
+        if not self.store:
+            return
+
+        model_names = self.store.model_names
+        n = len(model_names)
+
+        progress = QProgressDialog(
+            f"Computing {stat}…", "Cancel", 0, n, self.iface.mainWindow()
+        )
+        progress.setWindowTitle("Please wait")
+        progress.setWindowModality(Qt.ApplicationModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+        QApplication.processEvents()
+
+        values = {}
+        for i, name in enumerate(model_names):
+            if progress.wasCanceled():
+                break
+            progress.setLabelText(f"Computing {stat} for '{name}' ({i + 1}/{n})…")
+            progress.setValue(i)
+            QApplication.processEvents()
+            try:
+                ml = self.store.get_models(name)
+                if not ml.parameters["optimal"].notna().any():
+                    values[name] = float("nan")
+                    continue
+                val = getattr(ml.stats, stat)()
+                values[name] = float(val)
+            except Exception:
+                values[name] = float("nan")
+
+        progress.setValue(n)
+
+        if self.dock_widget:
+            self.dock_widget.set_model_column_values(stat, values)
+
+    def open_mpl_results_plot(self, model_name):
+        if not self.store:
+            return
+
+        try:
+            import matplotlib.pyplot as plt
+
+            ml = self.store.get_models(model_name)
+            ml.plots.results()
+            plt.show()
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to show matplotlib results: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def open_mpl_diagnostics_plot(self, model_name):
+        if not self.store:
+            return
+
+        try:
+            import matplotlib.pyplot as plt
+
+            ml = self.store.get_models(model_name)
+            ml.plots.diagnostics()
+            plt.show()
+        except Exception as e:
+            import traceback
+
+            self.iface.messageBar().pushMessage(
+                "Error", f"Failed to show matplotlib diagnostics: {str(e)}", level=2
             )
             print(traceback.format_exc())
 

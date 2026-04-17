@@ -6,7 +6,6 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
     QLabel,
     QPushButton,
-    QListWidget,
     QTabWidget,
     QSplitter,
     QTableWidget,
@@ -37,6 +36,10 @@ class PastastoreMainDock(QDockWidget):
     delete_stresses_requested = pyqtSignal(list)  # names (list)
     edit_model_requested = pyqtSignal(str)  # model name
     results_requested = pyqtSignal(str)  # model name
+    diagnostics_requested = pyqtSignal(str)  # model name
+    mpl_results_requested = pyqtSignal(str)  # model name (matplotlib)
+    mpl_diagnostics_requested = pyqtSignal(str)  # model name (matplotlib)
+    add_model_column_requested = pyqtSignal(str)  # stat name to compute
     select_models_for_oseries_requested = pyqtSignal(list)  # oseries names
     select_models_for_stresses_requested = pyqtSignal(list)  # stresses names
     select_oseries_for_models_requested = pyqtSignal(list)  # model names
@@ -153,9 +156,30 @@ class PastastoreMainDock(QDockWidget):
 
         stresses_widget.setLayout(stresses_layout)
 
-        self.list_models = QListWidget()
-        self.list_models.setSelectionMode(QListWidget.ExtendedSelection)
-        self.list_models.setContextMenuPolicy(Qt.CustomContextMenu)
+        # Models tab
+        self._model_extra_cols = []  # list of extra stat column names
+
+        models_widget = QWidget()
+        models_layout = QVBoxLayout()
+        models_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.table_models = QTableWidget()
+        self.table_models.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table_models.setSelectionMode(QTableWidget.ExtendedSelection)
+        self.table_models.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
+        self.table_models.horizontalHeader().setStretchLastSection(True)
+        self.table_models.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table_models.setSortingEnabled(True)
+        self.table_models.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table_models.setColumnCount(1)
+        self.table_models.setHorizontalHeaderLabels(["Name"])
+        # Right-click on header to add/remove stat columns
+        self.table_models.horizontalHeader().setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table_models.horizontalHeader().customContextMenuRequested.connect(
+            self._show_models_header_menu
+        )
+        models_layout.addWidget(self.table_models)
+        models_widget.setLayout(models_layout)
 
         for table in [self.table_oseries, self.table_stresses]:
             table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -169,7 +193,7 @@ class PastastoreMainDock(QDockWidget):
 
         self.tabs.addTab(oseries_widget, "Oseries")
         self.tabs.addTab(stresses_widget, "Stresses")
-        self.tabs.addTab(self.list_models, "Models")
+        self.tabs.addTab(models_widget, "Models")
 
         self.table_oseries.itemSelectionChanged.connect(
             lambda: self._on_selection_changed("oseries")
@@ -177,7 +201,7 @@ class PastastoreMainDock(QDockWidget):
         self.table_stresses.itemSelectionChanged.connect(
             lambda: self._on_selection_changed("stresses")
         )
-        self.list_models.itemSelectionChanged.connect(
+        self.table_models.itemSelectionChanged.connect(
             lambda: self._on_selection_changed("models")
         )
 
@@ -187,13 +211,11 @@ class PastastoreMainDock(QDockWidget):
         self.table_stresses.customContextMenuRequested.connect(
             self.show_stresses_context_menu
         )
-        self.list_models.customContextMenuRequested.connect(
+        self.table_models.customContextMenuRequested.connect(
             self.show_model_context_menu
         )
         self.table_oseries.itemDoubleClicked.connect(self._on_oseries_double_clicked)
-        self.list_models.itemDoubleClicked.connect(
-            lambda item: self.edit_model_requested.emit(item.text())
-        )
+        self.table_models.itemDoubleClicked.connect(self._on_model_double_clicked)
 
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
@@ -206,6 +228,100 @@ class PastastoreMainDock(QDockWidget):
         name_item = self.table_oseries.item(item.row(), 0)
         if name_item:
             self.create_model_requested.emit(name_item.text())
+
+    def _on_model_double_clicked(self, item):
+        if item is None:
+            return
+        name_item = self.table_models.item(item.row(), 0)
+        if name_item:
+            self.edit_model_requested.emit(name_item.text())
+
+    # Available statistics for model columns
+    AVAILABLE_MODEL_STATS = [
+        ("EVP [%]", "evp"),
+        ("R²", "rsq"),
+        ("RMSE", "rmse"),
+        ("NSE", "nse"),
+        ("KGE", "kge"),
+        ("AIC", "aic"),
+        ("BIC", "bic"),
+        ("Pearson r", "pearsonr"),
+    ]
+
+    def _show_models_header_menu(self, position):
+        from qgis.PyQt.QtWidgets import QMenu, QAction
+
+        menu = QMenu()
+
+        add_menu = QMenu("Add column", self)
+        for label, stat in self.AVAILABLE_MODEL_STATS:
+            if stat not in self._model_extra_cols:
+                action = QAction(label, self)
+                action.triggered.connect(
+                    lambda checked, s=stat: self._request_add_column(s)
+                )
+                add_menu.addAction(action)
+        if add_menu.isEmpty():
+            add_menu.setEnabled(False)
+        menu.addMenu(add_menu)
+
+        if self._model_extra_cols:
+            remove_menu = QMenu("Remove column", self)
+            for stat in self._model_extra_cols:
+                label = next(
+                    (lbl for lbl, s in self.AVAILABLE_MODEL_STATS if s == stat), stat
+                )
+                action = QAction(label, self)
+                action.triggered.connect(
+                    lambda checked, s=stat: self._remove_model_column(s)
+                )
+                remove_menu.addAction(action)
+            menu.addMenu(remove_menu)
+
+        menu.exec_(self.table_models.horizontalHeader().mapToGlobal(position))
+
+    def _request_add_column(self, stat):
+        if stat not in self._model_extra_cols:
+            self._model_extra_cols.append(stat)
+            # Add the column to the table with placeholder values
+            label = next(
+                (lbl for lbl, s in self.AVAILABLE_MODEL_STATS if s == stat), stat
+            )
+            col = self.table_models.columnCount()
+            self.table_models.insertColumn(col)
+            self.table_models.setHorizontalHeaderItem(col, QTableWidgetItem(label))
+            for row in range(self.table_models.rowCount()):
+                self.table_models.setItem(row, col, QTableWidgetItem("…"))
+            # Ask pastastore_viewer to compute and fill the values
+            self.add_model_column_requested.emit(stat)
+
+    def _remove_model_column(self, stat):
+        if stat not in self._model_extra_cols:
+            return
+        idx = self._model_extra_cols.index(stat)
+        self._model_extra_cols.remove(stat)
+        # +1 because column 0 is Name
+        self.table_models.removeColumn(idx + 1)
+
+    def set_model_column_values(self, stat, values):
+        """Fill a stat column with computed values. values is a dict {model_name: value}."""
+        if stat not in self._model_extra_cols:
+            return
+        col = self._model_extra_cols.index(stat) + 1  # +1 for Name
+        self.table_models.setSortingEnabled(False)
+        for row in range(self.table_models.rowCount()):
+            name_item = self.table_models.item(row, 0)
+            if name_item is None:
+                continue
+            name = name_item.text()
+            val = values.get(name)
+            cell = QTableWidgetItem()
+            if val is not None and not (isinstance(val, float) and np.isnan(val)):
+                cell.setData(Qt.DisplayRole, float(val))
+            else:
+                cell.setText("-")
+            self.table_models.setItem(row, col, cell)
+        self.table_models.setSortingEnabled(True)
 
     def show_oseries_context_menu(self, position):
         from qgis.PyQt.QtWidgets import QMenu, QAction
@@ -294,34 +410,64 @@ class PastastoreMainDock(QDockWidget):
     def show_model_context_menu(self, position):
         from qgis.PyQt.QtWidgets import QMenu, QAction
 
-        if not self.list_models.selectedItems():
-            item = self.list_models.itemAt(position)
-            if item is not None:
-                self.list_models.setCurrentItem(item)
+        item = self.table_models.itemAt(position)
+        if item is not None:
+            row = item.row()
+            if not self.table_models.item(row, 0) in [
+                self.table_models.selectedItems()[i]
+                if self.table_models.selectedItems()
+                else None
+                for i in range(len(self.table_models.selectedItems()))
+            ]:
+                self.table_models.selectRow(row)
 
-        items = self.list_models.selectedItems()
-        if not items:
+        rows = sorted(
+            set(i.row() for i in self.table_models.selectedItems())
+        )
+        if not rows:
             return
-
-        names = [i.text() for i in items]
+        names = [self.table_models.item(r, 0).text() for r in rows if self.table_models.item(r, 0)]
+        if not names:
+            return
 
         menu = QMenu()
 
         # Edit Action (Single selection only)
-        if len(items) == 1:
+        if len(names) == 1:
             edit_action = QAction("Edit Model", self)
             edit_action.setIcon(QgsApplication.getThemeIcon("/mActionEditTable.svg"))
             edit_action.triggered.connect(
-                lambda: self.edit_model_requested.emit(items[0].text())
+                lambda: self.edit_model_requested.emit(names[0])
             )
             menu.addAction(edit_action)
 
             results_action = QAction("Show Results", self)
             results_action.setIcon(QgsApplication.getThemeIcon("/mIconTable.svg"))
             results_action.triggered.connect(
-                lambda: self.results_requested.emit(items[0].text())
+                lambda: self.results_requested.emit(names[0])
             )
             menu.addAction(results_action)
+
+            diagnostics_action = QAction("Show Diagnostics", self)
+            diagnostics_action.setIcon(QgsApplication.getThemeIcon("/mIconTable.svg"))
+            diagnostics_action.triggered.connect(
+                lambda: self.diagnostics_requested.emit(names[0])
+            )
+            menu.addAction(diagnostics_action)
+
+            mpl_menu = QMenu("Matplotlib", self)
+            mpl_results_action = QAction("Show Results", self)
+            mpl_results_action.triggered.connect(
+                lambda: self.mpl_results_requested.emit(names[0])
+            )
+            mpl_menu.addAction(mpl_results_action)
+
+            mpl_diag_action = QAction("Show Diagnostics", self)
+            mpl_diag_action.triggered.connect(
+                lambda: self.mpl_diagnostics_requested.emit(names[0])
+            )
+            mpl_menu.addAction(mpl_diag_action)
+            menu.addMenu(mpl_menu)
 
         select_oseries_action = QAction("Select Oseries", self)
         select_oseries_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
@@ -344,13 +490,14 @@ class PastastoreMainDock(QDockWidget):
         )
         menu.addAction(delete_action)
 
-        menu.exec_(self.list_models.mapToGlobal(position))
+        menu.exec_(self.table_models.mapToGlobal(position))
 
     def populate_lists(self, store):
         """Fill tables/lists with data from the store."""
         self.table_oseries.setRowCount(0)
         self.table_stresses.setRowCount(0)
-        self.list_models.clear()
+        self.table_models.setSortingEnabled(False)
+        self.table_models.setRowCount(0)
 
         if store is None:
             return
@@ -405,9 +552,26 @@ class PastastoreMainDock(QDockWidget):
             # Set Name column width
             self.table_stresses.setColumnWidth(0, 200)
 
-        # Models List (Keep as list as requested)
+        # Models Table
         if hasattr(store, "model_names") and len(store.model_names) > 0:
-            self.list_models.addItems(store.model_names)
+            model_names = sorted(store.model_names)
+            # Rebuild column headers preserving extra cols
+            headers = ["Name"] + [
+                next((lbl for lbl, s in self.AVAILABLE_MODEL_STATS if s == stat), stat)
+                for stat in self._model_extra_cols
+            ]
+            self.table_models.setColumnCount(len(headers))
+            self.table_models.setHorizontalHeaderLabels(headers)
+            self.table_models.setRowCount(len(model_names))
+            for i, name in enumerate(model_names):
+                self.table_models.setItem(i, 0, QTableWidgetItem(name))
+                for j, stat in enumerate(self._model_extra_cols):
+                    self.table_models.setItem(i, j + 1, QTableWidgetItem("…"))
+            self.table_models.setColumnWidth(0, 200)
+            self.table_models.setSortingEnabled(True)
+            # Re-request computation for all extra cols
+            for stat in self._model_extra_cols:
+                self.add_model_column_requested.emit(stat)
 
     def get_selected_names(self, category):
         if category == "oseries":
@@ -435,8 +599,12 @@ class PastastoreMainDock(QDockWidget):
                 )
             )
         if category == "models":
-            items = self.list_models.selectedItems()
-            return [item.text() for item in items]
+            rows = sorted(set(i.row() for i in self.table_models.selectedItems()))
+            return [
+                self.table_models.item(r, 0).text()
+                for r in rows
+                if self.table_models.item(r, 0)
+            ]
         return []
 
     def select_items_in_list(
@@ -453,7 +621,7 @@ class PastastoreMainDock(QDockWidget):
             if switch_tab:
                 self.tabs.setCurrentIndex(1)
         elif category == "models":
-            list_widget = self.list_models
+            list_widget = self.table_models
             if switch_tab:
                 self.tabs.setCurrentIndex(2)
 
@@ -479,13 +647,15 @@ class PastastoreMainDock(QDockWidget):
                                     QItemSelectionModel.Select
                                     | QItemSelectionModel.Rows,
                                 )
-                    else:  # QListWidget
-                        for name in names:
-                            items = list_widget.findItems(name, Qt.MatchExactly)
-                            for item in items:
-                                index = list_widget.indexFromItem(item)
+                    else:  # QTableWidget (models)
+                        for row in range(list_widget.rowCount()):
+                            item = list_widget.item(row, 0)
+                            if item and item.text() in names:
+                                index = list_widget.model().index(row, 0)
                                 selection_model.select(
-                                    index, QItemSelectionModel.Select
+                                    index,
+                                    QItemSelectionModel.Select
+                                    | QItemSelectionModel.Rows,
                                 )
 
                     if isinstance(list_widget, QTableWidget):
@@ -530,8 +700,12 @@ class PastastoreMainDock(QDockWidget):
                 )
             )
         elif category == "models":
-            items = self.list_models.selectedItems()
-            names = [item.text() for item in items]
+            rows = sorted(set(i.row() for i in self.table_models.selectedItems()))
+            names = [
+                self.table_models.item(r, 0).text()
+                for r in rows
+                if self.table_models.item(r, 0)
+            ]
         else:
             return
 

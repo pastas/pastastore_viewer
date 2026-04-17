@@ -139,9 +139,7 @@ class PastastorePlotDock(QDockWidget):
             x, y = self._prepare_data(plot_data)
             if x is not None:
                 color = colors[i % len(colors)]
-                symbol = "o"
-                if len(x) > 5000:
-                    symbol = None
+                symbol = "o" if len(x) < 10 else None
 
                 self.plot_widget.plot(
                     x,
