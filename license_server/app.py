@@ -399,7 +399,19 @@ async function loadLicenses() {
       <td>${active}</td>
       <td>${l.active_devices} / ${l.max_devices}</td>
       <td>${fmtDate(l.expires_at)}</td>
-      <td><button class="expand" onclick="toggleDevices('${l.id}', this)">&#9654; Devices</button></td>
+      <td style="white-space:nowrap">
+        <button class="expand" onclick="toggleDevices('${l.id}', this)">&#9654; Devices</button>
+        <button class="expand" style="margin-left:4px" onclick="toggleExpiry('${l.id}')">&#9998; Expiry</button>
+        <button class="${l.is_active ? 'danger' : 'expand'}" style="margin-left:4px" onclick="toggleActive('${l.id}')">${l.is_active ? 'Deactivate' : 'Activate'}</button>
+        <button class="danger" style="margin-left:4px;background:#7c3aed" onclick="deleteLicense('${l.id}', '${l.customer_name}')">Delete</button>
+      </td>
+    </tr>
+    <tr id="exp-row-${l.id}" style="display:none">
+      <td colspan="7" style="background:#fffbeb;padding:10px 16px">
+        New expiry date: <input type="date" id="exp-input-${l.id}" value="${l.expires_at.substring(0,10)}" style="width:160px;display:inline-block;margin:0 8px" />
+        <button onclick="saveExpiry('${l.id}')">Save</button>
+        <span id="exp-status-${l.id}" style="margin-left:8px;font-size:12px"></span>
+      </td>
     </tr>
     <tr id="dev-row-${l.id}" class="devices-row" style="display:none">
       <td colspan="7"><div class="devices-inner" id="dev-${l.id}">Loading...</div></td>
@@ -453,6 +465,38 @@ async function deactivateDevice(licId, machineId) {
   if (!res.ok) { alert('Failed to deactivate: ' + res.status); return; }
   await loadDevices(licId);
   await loadLicenses();
+}
+
+async function toggleActive(licId) {
+  const res = await api('/admin/licenses/' + licId + '/toggle-active', { method: 'PATCH' });
+  if (!res.ok) { alert('Failed: ' + res.status); return; }
+  loadLicenses();
+}
+
+async function toggleExpiry(licId) {
+  const row = document.getElementById('exp-row-' + licId);
+  row.style.display = (row.style.display !== 'none') ? 'none' : '';
+}
+
+async function saveExpiry(licId) {
+  const val = document.getElementById('exp-input-' + licId).value;
+  const statusEl = document.getElementById('exp-status-' + licId);
+  if (!val) { statusEl.textContent = 'Pick a date.'; return; }
+  const res = await api('/admin/licenses/' + licId + '/expires', {
+    method: 'PATCH',
+    body: JSON.stringify({ expires_at: val }),
+  });
+  if (!res.ok) { statusEl.style.color = '#dc2626'; statusEl.textContent = 'Error ' + res.status; return; }
+  statusEl.style.color = '#166534';
+  statusEl.textContent = 'Saved!';
+  setTimeout(() => { document.getElementById('exp-row-' + licId).style.display = 'none'; loadLicenses(); }, 800);
+}
+
+async function deleteLicense(licId, customerName) {
+  if (!confirm('Permanently DELETE the license for "' + customerName + '"?\\nThis cannot be undone.')) return;
+  const res = await api('/admin/licenses/' + licId, { method: 'DELETE' });
+  if (!res.ok) { alert('Failed to delete: ' + res.status); return; }
+  loadLicenses();
 }
 
 async function createLicense() {
@@ -654,3 +698,78 @@ def admin_deactivate(
     if not removed:
         raise HTTPException(status_code=404, detail="Activation not found.")
     return {"deactivated": True}
+
+
+@app.patch("/admin/licenses/{license_id}/toggle-active")
+def admin_toggle_active(
+    license_id: str,
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Toggle the is_active flag of a license."""
+    ensure_admin_token(x_admin_token)
+
+    conn = db()
+    try:
+        row = conn.execute(
+            "SELECT is_active FROM licenses WHERE id = ?", (license_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="License not found.")
+        new_state = 0 if row["is_active"] else 1
+        conn.execute(
+            "UPDATE licenses SET is_active = ? WHERE id = ?", (new_state, license_id)
+        )
+        conn.commit()
+        return {"is_active": bool(new_state)}
+    finally:
+        conn.close()
+
+
+@app.patch("/admin/licenses/{license_id}/expires")
+def admin_update_expires(
+    license_id: str,
+    payload: dict[str, Any],
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Update the expiry date of a license. Body: {"expires_at": "YYYY-MM-DD"}"""
+    ensure_admin_token(x_admin_token)
+
+    new_date = payload.get("expires_at", "").strip()
+    try:
+        parsed = datetime.strptime(new_date, "%Y-%m-%d")  # noqa: DTZ007
+        expires_iso = parsed.strftime("%Y-%m-%dT00:00:00Z")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="expires_at must be YYYY-MM-DD")
+
+    conn = db()
+    try:
+        cur = conn.execute(
+            "UPDATE licenses SET expires_at = ? WHERE id = ?",
+            (expires_iso, license_id),
+        )
+        conn.commit()
+        if not cur.rowcount:
+            raise HTTPException(status_code=404, detail="License not found.")
+        return {"expires_at": expires_iso}
+    finally:
+        conn.close()
+
+
+@app.delete("/admin/licenses/{license_id}")
+def admin_delete_license(
+    license_id: str,
+    x_admin_token: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """Permanently delete a license and all its activations."""
+    ensure_admin_token(x_admin_token)
+
+    conn = db()
+    try:
+        conn.execute("DELETE FROM activations WHERE license_id = ?", (license_id,))
+        cur = conn.execute("DELETE FROM licenses WHERE id = ?", (license_id,))
+        conn.commit()
+        if not cur.rowcount:
+            raise HTTPException(status_code=404, detail="License not found.")
+        return {"deleted": True}
+    finally:
+        conn.close()
