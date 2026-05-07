@@ -24,6 +24,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, QDate
 from qgis.core import QgsApplication
 from .plot_toolbar import PlotNavigationWidget
+from .i18n_helper import tr as _i18n_tr
 import pandas as pd
 import numpy as np
 import pastastore as pst
@@ -32,12 +33,16 @@ import pyqtgraph as pg
 from pyqtgraph import DateAxisItem
 
 
+def _tr(message):
+    return _i18n_tr(message)
+
+
 class ModelEditorDialog(QDialog):
     """Dialog to edit a Pastas model with advanced stressmodel configuration."""
 
     def __init__(self, model: ps.Model, store: pst.PastaStore, parent=None, can_solve: bool = True):
         super(ModelEditorDialog, self).__init__(parent)
-        self.setWindowTitle("View Model")
+        self.setWindowTitle(_tr("View Model"))
         self.resize(800, 800)
 
         self.original_model = model
@@ -80,7 +85,7 @@ class ModelEditorDialog(QDialog):
         self.vbox_general = QVBoxLayout()
         self.tab_general.setLayout(self.vbox_general)
 
-        self.group_general = QGroupBox("Model Settings")
+        self.group_general = QGroupBox(_tr("Model Settings"))
         self.form_general = QFormLayout()
 
         self.le_name = QLineEdit(model.name)
@@ -152,22 +157,22 @@ class ModelEditorDialog(QDialog):
                 QMessageBox.warning(self, "Unsupported Transform", msg)
         self.cbo_transform.setCurrentText(current_text)
 
-        self.form_general.addRow("Model Name:", self.le_name)
-        self.form_general.addRow("Tmin:", self.de_tmin)
-        self.form_general.addRow("Tmax:", self.de_tmax)
-        self.form_general.addRow("Frequency:", self.cbo_freq)
-        self.form_general.addRow("Noise Model:", self.cbo_noise)
-        self.form_general.addRow("Transform:", self.cbo_transform)
+        self.form_general.addRow(_tr("Model Name:"), self.le_name)
+        self.form_general.addRow(_tr("Tmin:"), self.de_tmin)
+        self.form_general.addRow(_tr("Tmax:"), self.de_tmax)
+        self.form_general.addRow(_tr("Frequency:"), self.cbo_freq)
+        self.form_general.addRow(_tr("Noise Model:"), self.cbo_noise)
+        self.form_general.addRow(_tr("Transform:"), self.cbo_transform)
         self.group_general.setLayout(self.form_general)
         self.vbox_general.addWidget(self.group_general)
         self.vbox_general.addStretch()
-        self.tabs.addTab(self.tab_general, "General")
+        self.tabs.addTab(self.tab_general, _tr("General"))
 
         # Tab 1: Stressmodels
         self.tab_stressmodels = QWidget()
         self.hbox_stresses = QHBoxLayout()
         self.tab_stressmodels.setLayout(self.hbox_stresses)
-        self.tabs.addTab(self.tab_stressmodels, "Stressmodels")
+        self.tabs.addTab(self.tab_stressmodels, _tr("Stressmodels"))
 
         # Tab 2: Parameters
         self.tab_parameters = QWidget()
@@ -180,7 +185,7 @@ class ModelEditorDialog(QDialog):
         )
         self.table_params.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.vbox_params.addWidget(self.table_params)
-        self.tabs.addTab(self.tab_parameters, "Parameters")
+        self.tabs.addTab(self.tab_parameters, _tr("Parameters"))
 
         # Master: List
         self.vbox_list = QVBoxLayout()
@@ -200,7 +205,7 @@ class ModelEditorDialog(QDialog):
         self.hbox_stresses.addLayout(self.vbox_list, 1)
 
         # Detail: Configuration
-        self.group_detail = QGroupBox("Configuration")
+        self.group_detail = QGroupBox(_tr("Configuration"))
         self.form_detail = QFormLayout()
         self.group_detail.setLayout(self.form_detail)
 
@@ -228,40 +233,40 @@ class ModelEditorDialog(QDialog):
         self.detail_up.toggled.connect(self.save_detail_up)
 
         # Inputs (Dynamic)
-        self.detail_input1_lbl = QLabel("Input 1:")
+        self.detail_input1_lbl = QLabel(_tr("Input 1:"))
         self.detail_input1 = QComboBox()
         self.detail_input1.addItems(self.available_stresses)
         self.detail_input1.currentTextChanged.connect(self.save_detail_input1)
 
-        self.detail_input2_lbl = QLabel("Input 2 (Evap):")
+        self.detail_input2_lbl = QLabel(_tr("Input 2 (Evap):"))
         self.detail_input2 = QComboBox()
         self.detail_input2.addItems(self.available_stresses)
         self.detail_input2.currentTextChanged.connect(self.save_detail_input2)
 
         # StepModel datetime
-        self.detail_step_date_lbl = QLabel("Step Start:")
+        self.detail_step_date_lbl = QLabel(_tr("Step Start:"))
         self.detail_step_date = QDateEdit()
         self.detail_step_date.setCalendarPopup(True)
         self.detail_step_date.setDisplayFormat("yyyy-MM-dd")
         self.detail_step_date.dateChanged.connect(self.save_detail_step_date)
 
         # LinearTrend datetimes
-        self.detail_trend_start_lbl = QLabel("Trend Start:")
+        self.detail_trend_start_lbl = QLabel(_tr("Trend Start:"))
         self.detail_trend_start = QDateEdit()
         self.detail_trend_start.setCalendarPopup(True)
         self.detail_trend_start.setDisplayFormat("yyyy-MM-dd")
         self.detail_trend_start.dateChanged.connect(self.save_detail_trend_start)
 
-        self.detail_trend_end_lbl = QLabel("Trend End:")
+        self.detail_trend_end_lbl = QLabel(_tr("Trend End:"))
         self.detail_trend_end = QDateEdit()
         self.detail_trend_end.setCalendarPopup(True)
         self.detail_trend_end.setDisplayFormat("yyyy-MM-dd")
         self.detail_trend_end.dateChanged.connect(self.save_detail_trend_end)
 
-        self.form_detail.addRow("Name:", self.detail_name)
-        self.form_detail.addRow("Type:", self.detail_type)
-        self.form_detail.addRow("Response Function:", self.detail_rfunc)
-        self.form_detail.addRow("Recharge Type:", self.detail_recharge)
+        self.form_detail.addRow(_tr("Name:"), self.detail_name)
+        self.form_detail.addRow(_tr("Type:"), self.detail_type)
+        self.form_detail.addRow(_tr("Response Function:"), self.detail_rfunc)
+        self.form_detail.addRow(_tr("Recharge Type:"), self.detail_recharge)
         self.form_detail.addRow("", self.detail_up)
         self.form_detail.addRow(self.detail_input1_lbl, self.detail_input1)
         self.form_detail.addRow(self.detail_input2_lbl, self.detail_input2)
@@ -272,23 +277,23 @@ class ModelEditorDialog(QDialog):
         self.hbox_stresses.addWidget(self.group_detail, 2)
 
         # Statistics
-        self.lbl_stats = QLabel("Stats: E.V.P.: - | R2: -")
+        self.lbl_stats = QLabel(_tr("Stats: E.V.P.: - | R2: -"))
         self.layout.addWidget(self.lbl_stats)
 
         # Bottom Buttons
-        self.btn_solve = QPushButton("Solve")
+        self.btn_solve = QPushButton(_tr("Solve"))
         self.btn_solve.setIcon(QgsApplication.getThemeIcon("/mActionRun.svg"))
         self.btn_solve.clicked.connect(self.solve_model)
         self.btn_solve.setEnabled(self.can_solve)
         if not self.can_solve:
-            self.btn_solve.setToolTip("Upgrade to Pro to solve models")
+            self.btn_solve.setToolTip(_tr("Upgrade to Pro to solve models"))
 
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.Save | QDialogButtonBox.Cancel
         )
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-        self.button_box.button(QDialogButtonBox.Save).setText("Save Model")
+        self.button_box.button(QDialogButtonBox.Save).setText(_tr("Save Model"))
         self.button_box.button(QDialogButtonBox.Save).setIcon(
             QgsApplication.getThemeIcon("/mActionFileSave.svg")
         )

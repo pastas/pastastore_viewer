@@ -20,6 +20,12 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 import pandas as pd
 import numpy as np
+from .i18n_helper import tr as _i18n_tr
+
+
+def _tr(message):
+    return _i18n_tr(message)
+
 
 try:
     import pyqtgraph as pg
@@ -56,7 +62,7 @@ class KNMIImportDialog(QDialog):
         self._knmi_progress_calls = 0
         self._knmi_progress_expected = 0
 
-        self.setWindowTitle("Import from KNMI")
+        self.setWindowTitle(_tr("Import from KNMI"))
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
         self.resize(1000, 700)
 
@@ -74,34 +80,34 @@ class KNMIImportDialog(QDialog):
         layout = QVBoxLayout()
 
         self.lbl_info = QLabel(
-            "Download precipitation (RH) and evaporation (EV24) near oseries locations."
+            _tr("Download precipitation (RH) and evaporation (EV24) near oseries locations.")
         )
         self.lbl_info.setWordWrap(True)
         layout.addWidget(self.lbl_info)
 
         info_row = QHBoxLayout()
-        self.lbl_locations = QLabel("Locations: -")
-        self.lbl_period = QLabel("Period: -")
+        self.lbl_locations = QLabel(_tr("Locations: -"))
+        self.lbl_period = QLabel(_tr("Period: -"))
         info_row.addWidget(self.lbl_locations)
         info_row.addStretch()
         info_row.addWidget(self.lbl_period)
         layout.addLayout(info_row)
 
-        options_group = QGroupBox("Download Options")
+        options_group = QGroupBox(_tr("Download Options"))
         options_layout = QVBoxLayout()
 
         freq_row = QHBoxLayout()
-        freq_row.addWidget(QLabel("Frequency:"))
+        freq_row.addWidget(QLabel(_tr("Frequency:")))
         self.combo_frequency = QComboBox()
-        self.combo_frequency.addItem("Daily", "daily")
-        self.combo_frequency.addItem("Hourly", "hourly")
+        self.combo_frequency.addItem(_tr("Daily"), "daily")
+        self.combo_frequency.addItem(_tr("Hourly"), "hourly")
         self.combo_frequency.currentIndexChanged.connect(self._on_frequency_changed)
         freq_row.addWidget(self.combo_frequency)
         freq_row.addStretch()
         options_layout.addLayout(freq_row)
 
         vars_row = QHBoxLayout()
-        vars_row.addWidget(QLabel("KNMI Variables:"))
+        vars_row.addWidget(QLabel(_tr("KNMI Variables:")))
         self.chk_var_rh = QCheckBox("RH")
         self.chk_var_rd = QCheckBox("RD")
         self.chk_var_ev24 = QCheckBox("EV24")
@@ -114,20 +120,20 @@ class KNMIImportDialog(QDialog):
         options_layout.addLayout(vars_row)
 
         fill_row = QHBoxLayout()
-        self.chk_fill_missing = QCheckBox("Fill Missing Observations")
+        self.chk_fill_missing = QCheckBox(_tr("Fill Missing Observations"))
         self.chk_fill_missing.setChecked(True)
         fill_row.addWidget(self.chk_fill_missing)
         fill_row.addStretch()
         options_layout.addLayout(fill_row)
 
         period_row = QHBoxLayout()
-        period_row.addWidget(QLabel("Minimum Time:"))
+        period_row.addWidget(QLabel(_tr("Minimum Time:")))
         self.dt_start = QDateTimeEdit()
         self.dt_start.setCalendarPopup(True)
         self.dt_start.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
         self.dt_start.dateTimeChanged.connect(self._on_time_inputs_changed)
         period_row.addWidget(self.dt_start)
-        period_row.addWidget(QLabel("Maximum Time:"))
+        period_row.addWidget(QLabel(_tr("Maximum Time:")))
         self.dt_end = QDateTimeEdit()
         self.dt_end.setCalendarPopup(True)
         self.dt_end.setDisplayFormat("yyyy-MM-dd HH:mm:ss")
@@ -173,18 +179,18 @@ class KNMIImportDialog(QDialog):
         layout.addLayout(content_row)
 
         button_layout = QHBoxLayout()
-        self.btn_download = QPushButton("Download")
+        self.btn_download = QPushButton(_tr("Download"))
         self.btn_download.clicked.connect(self.download_knmi)
         button_layout.addWidget(self.btn_download)
 
-        self.btn_add_store = QPushButton("Add to Store")
+        self.btn_add_store = QPushButton(_tr("Add to Store"))
         self.btn_add_store.clicked.connect(self.add_to_store)
         self.btn_add_store.setEnabled(False)
         button_layout.addWidget(self.btn_add_store)
 
         button_layout.addStretch()
 
-        self.btn_close = QPushButton("Close")
+        self.btn_close = QPushButton(_tr("Close"))
         self.btn_close.clicked.connect(self.reject)
         button_layout.addWidget(self.btn_close)
 

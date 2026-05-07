@@ -15,10 +15,43 @@ import sys
 import threading
 from contextlib import contextmanager
 
+from .i18n_helper import tr as _i18n_tr
+
 _REQUIRED_PACKAGES = ["pastastore", "pastas", "pyqtgraph"]
 _RUNTIME_INSTALL_DONE = False
 _PLUGIN_DIR = os.path.dirname(__file__)
 _DEPS_DIR = os.path.join(_PLUGIN_DIR, "dependencies")
+_PLUGIN_TRANSLATOR = None
+
+
+def _install_plugin_translator():
+    """Install Dutch translations when QGIS locale is Dutch."""
+    global _PLUGIN_TRANSLATOR
+    try:
+        from qgis.PyQt.QtCore import QCoreApplication, QSettings, QTranslator
+
+        locale = QSettings().value("locale/userLocale", "en")
+        if not isinstance(locale, str):
+            locale = "en"
+        language = locale[:2].lower()
+        if language != "nl":
+            return None
+
+        translator = QTranslator()
+        qm_path = os.path.join(_PLUGIN_DIR, "i18n", "pastastore_viewer_nl.qm")
+        if translator.load(qm_path):
+            QCoreApplication.installTranslator(translator)
+            return translator
+    except Exception:
+        pass
+    return None
+
+
+def _tr(message):
+    try:
+        return _i18n_tr(message)
+    except Exception:
+        return message
 
 
 @contextmanager
@@ -134,8 +167,10 @@ def _handle_install_result(success, stdout, stderr, missing, progress):
     if not success:
         QMessageBox.critical(
             None,
-            "Install failed",
-            f"Failed to install required packages ({', '.join(missing)})",
+            _tr("Install failed"),
+            _tr("Failed to install required packages ({packages})").format(
+                packages=", ".join(missing)
+            ),
         )
         return
 
@@ -147,8 +182,10 @@ def _handle_install_result(success, stdout, stderr, missing, progress):
     if still_missing:
         QMessageBox.warning(
             None,
-            "Installation verification failed",
-            f"Installation completed but packages still missing: {', '.join(still_missing)}",
+            _tr("Installation verification failed"),
+            _tr("Installation completed but packages still missing: {packages}").format(
+                packages=", ".join(still_missing)
+            ),
         )
         return
 
@@ -156,8 +193,8 @@ def _handle_install_result(success, stdout, stderr, missing, progress):
     _RUNTIME_INSTALL_DONE = True
     QMessageBox.information(
         None,
-        "Installation successful",
-        f"Successfully installed: {', '.join(missing)}",
+        _tr("Installation successful"),
+        _tr("Successfully installed: {packages}").format(packages=", ".join(missing)),
     )
 
 
@@ -178,9 +215,8 @@ def _ensure_runtime_deps():
 
     reply = QMessageBox.question(
         None,
-        "Install dependencies",
-        "This plugin needs extra Python packages to run.\n"
-        "Do you want to download and install them now?",
+        _tr("Install dependencies"),
+        _tr("This plugin needs extra Python packages to run.\nDo you want to download and install them now?"),
         QMessageBox.Yes | QMessageBox.No,
         QMessageBox.Yes,
     )
@@ -192,9 +228,8 @@ def _ensure_runtime_deps():
     except Exception:
         QMessageBox.critical(
             None,
-            "pip not available",
-            "pip is not available in this QGIS Python. "
-            "Install 'python3-pip' via OSGeo4W Setup and try again.",
+            _tr("pip not available"),
+            _tr("pip is not available in this QGIS Python. Install 'python3-pip' via OSGeo4W Setup and try again."),
         )
         return
 
@@ -207,13 +242,15 @@ def _ensure_runtime_deps():
     from qgis.PyQt.QtCore import Qt, QTimer
 
     progress = QProgressDialog(
-        f"Installing {', '.join(missing)}...\n\nPlease wait.",
-        "Cancel",
+        _tr("Installing {packages}...\n\nPlease wait.").format(
+            packages=", ".join(missing)
+        ),
+        _tr("Cancel"),
         0,
         0,
         None,
     )
-    progress.setWindowTitle("Installing Dependencies")
+    progress.setWindowTitle(_tr("Installing Dependencies"))
     progress.setWindowModality(Qt.ApplicationModal)
     progress.setMinimumDuration(0)
     progress.show()
@@ -229,6 +266,7 @@ def _ensure_runtime_deps():
 
 
 # Check and prompt for runtime dependencies
+_PLUGIN_TRANSLATOR = _install_plugin_translator()
 _ensure_runtime_deps()
 
 

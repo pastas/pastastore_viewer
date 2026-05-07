@@ -10,6 +10,11 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import QDate
 import pandas as pd
+from .i18n_helper import tr as _i18n_tr
+
+
+def _tr(message):
+    return _i18n_tr(message)
 
 
 class BulkModelsDialog(QDialog):
@@ -20,31 +25,31 @@ class BulkModelsDialog(QDialog):
         self.oseries_names = oseries_names
         self.store = store
 
-        self.setWindowTitle("Create Models")
+        self.setWindowTitle(_tr("Create Models"))
         self.resize(420, 270)
 
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        info = QLabel(f"Create models for {len(oseries_names)} oseries.")
+        info = QLabel(_tr("Create models for {n} oseries.").format(n=len(oseries_names)))
         layout.addWidget(info)
 
         form = QFormLayout()
         layout.addLayout(form)
 
         self.le_suffix = QLineEdit()
-        self.le_suffix.setPlaceholderText("Optional suffix (e.g. _v2)")
-        form.addRow("Model name suffix:", self.le_suffix)
+        self.le_suffix.setPlaceholderText(_tr("Optional suffix (e.g. _v2)"))
+        form.addRow(_tr("Model name suffix:"), self.le_suffix)
 
-        self.chk_overwrite = QCheckBox("Overwrite existing models")
+        self.chk_overwrite = QCheckBox(_tr("Overwrite existing models"))
         self.chk_overwrite.setChecked(False)
         form.addRow("", self.chk_overwrite)
 
-        self.chk_recharge = QCheckBox("Add recharge component")
+        self.chk_recharge = QCheckBox(_tr("Add recharge component"))
         self.chk_recharge.setChecked(True)
         form.addRow("", self.chk_recharge)
 
-        self.chk_solve = QCheckBox("Solve models after creation")
+        self.chk_solve = QCheckBox(_tr("Solve models after creation"))
         self.chk_solve.setChecked(False)
         self.chk_solve.toggled.connect(self._toggle_solve_fields)
         form.addRow("", self.chk_solve)
@@ -52,12 +57,12 @@ class BulkModelsDialog(QDialog):
         self.de_tmin = QDateEdit()
         self.de_tmin.setCalendarPopup(True)
         self.de_tmin.setDisplayFormat("yyyy-MM-dd")
-        form.addRow("Solve tmin:", self.de_tmin)
+        form.addRow(_tr("Solve tmin:"), self.de_tmin)
 
         self.de_tmax = QDateEdit()
         self.de_tmax.setCalendarPopup(True)
         self.de_tmax.setDisplayFormat("yyyy-MM-dd")
-        form.addRow("Solve tmax:", self.de_tmax)
+        form.addRow(_tr("Solve tmax:"), self.de_tmax)
 
         default_tmin, default_tmax = self._get_default_dates()
         if default_tmin:

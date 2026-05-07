@@ -24,6 +24,11 @@ from qgis.PyQt.QtGui import QLinearGradient, QPainter, QPixmap
 from qgis.core import QgsApplication, QgsStyle
 import pandas as pd
 import numpy as np
+from .i18n_helper import tr as _i18n_tr
+
+
+def _tr(message):
+    return _i18n_tr(message)
 
 
 class PastastoreMainDock(QDockWidget):
@@ -56,7 +61,7 @@ class PastastoreMainDock(QDockWidget):
     import_knmi_requested = pyqtSignal()  # Import stresses from KNMI
 
     def __init__(self, parent=None):
-        super(PastastoreMainDock, self).__init__("Pastastore Viewer", parent)
+        super(PastastoreMainDock, self).__init__(_tr("Pastastore Viewer"), parent)
         self.setObjectName("PastastoreMainDock")
         self.setAllowedAreas(Qt.RightDockWidgetArea | Qt.LeftDockWidgetArea)
 
@@ -76,29 +81,29 @@ class PastastoreMainDock(QDockWidget):
 
         # Filename/Path Edit (full-width row)
         self.le_filename = QLineEdit()
-        self.le_filename.setPlaceholderText("No store loaded")
+        self.le_filename.setPlaceholderText(_tr("No store loaded"))
         self.layout.addWidget(self.le_filename)
 
         # Top Actions Layout (row below filename)
         top_layout = QHBoxLayout()
 
         # Load Button
-        self.btn_load = QPushButton("Load Pastastore Zip")
+        self.btn_load = QPushButton(_tr("Load Pastastore Zip"))
         self.btn_load.clicked.connect(lambda: self.load_requested.emit(""))
         top_layout.addWidget(self.btn_load)
 
         # New Button
-        self.btn_new = QPushButton("New Pastastore")
+        self.btn_new = QPushButton(_tr("New Pastastore"))
         self.btn_new.clicked.connect(lambda: self.new_requested.emit())
         top_layout.addWidget(self.btn_new)
 
         # Save Button
-        self.btn_save = QPushButton("Save Pastastore Zip")
+        self.btn_save = QPushButton(_tr("Save Pastastore Zip"))
         self.btn_save.clicked.connect(lambda: self.save_requested.emit())
         top_layout.addWidget(self.btn_save)
 
         # Settings Button
-        self.btn_settings = QPushButton("Settings")
+        self.btn_settings = QPushButton(_tr("Settings"))
         self.btn_settings.clicked.connect(lambda: self.settings_requested.emit())
         top_layout.addWidget(self.btn_settings)
 
@@ -119,12 +124,12 @@ class PastastoreMainDock(QDockWidget):
         # Import button below oseries table
         oseries_button_layout = QHBoxLayout()
         self.btn_import = QToolButton()
-        self.btn_import.setText("Import Data")
+        self.btn_import.setText(_tr("Import Data"))
         self.btn_import.setIcon(QgsApplication.getThemeIcon("/mActionAdd.svg"))
-        self.btn_import.setToolTip("Import data from external sources")
+        self.btn_import.setToolTip(_tr("Import data from external sources"))
         self.btn_import.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         import_menu = QMenu()
-        import_bro_action = import_menu.addAction("Download from BRO")
+        import_bro_action = import_menu.addAction(_tr("Download from BRO"))
         import_bro_action.triggered.connect(lambda: self.import_bro_requested.emit())
         self.btn_import.setMenu(import_menu)
         self.btn_import.setPopupMode(QToolButton.InstantPopup)
@@ -144,12 +149,14 @@ class PastastoreMainDock(QDockWidget):
 
         stresses_button_layout = QHBoxLayout()
         self.btn_import_stresses = QToolButton()
-        self.btn_import_stresses.setText("Import Data")
+        self.btn_import_stresses.setText(_tr("Import Data"))
         self.btn_import_stresses.setIcon(QgsApplication.getThemeIcon("/mActionAdd.svg"))
-        self.btn_import_stresses.setToolTip("Import stress data from external sources")
+        self.btn_import_stresses.setToolTip(
+            _tr("Import stress data from external sources")
+        )
         self.btn_import_stresses.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         stresses_import_menu = QMenu()
-        import_knmi_action = stresses_import_menu.addAction("Download from KNMI")
+        import_knmi_action = stresses_import_menu.addAction(_tr("Download from KNMI"))
         import_knmi_action.triggered.connect(
             lambda: self.import_knmi_requested.emit()
         )
@@ -186,13 +193,13 @@ class PastastoreMainDock(QDockWidget):
         models_layout.addWidget(self.table_models)
 
         # Map plot pane
-        map_plot_group = QGroupBox("Plot on Map")
+        map_plot_group = QGroupBox(_tr("Plot on Map"))
         map_plot_layout = QVBoxLayout()
         map_plot_layout.setContentsMargins(4, 4, 4, 4)
         map_plot_layout.setSpacing(4)
 
         var_row = QHBoxLayout()
-        var_row.addWidget(QLabel("Variable:"))
+        var_row.addWidget(QLabel(_tr("Variable:")))
         self.combo_map_var = QComboBox()
         self.combo_map_var.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.combo_map_var.setMinimumContentsLength(10)
@@ -200,7 +207,7 @@ class PastastoreMainDock(QDockWidget):
         map_plot_layout.addLayout(var_row)
 
         ramp_row = QHBoxLayout()
-        ramp_row.addWidget(QLabel("Color ramp:"))
+        ramp_row.addWidget(QLabel(_tr("Color ramp:")))
         self.combo_map_ramp = QComboBox()
         ramp_names = [
             "RdYlGn", "Turbo", "Viridis", "Plasma", "Magma", "Inferno",
@@ -209,7 +216,7 @@ class PastastoreMainDock(QDockWidget):
         for ramp_name in ramp_names:
             self.combo_map_ramp.addItem(ramp_name, ramp_name)
         ramp_row.addWidget(self.combo_map_ramp, 1)
-        self.chk_map_invert = QCheckBox("Invert")
+        self.chk_map_invert = QCheckBox(_tr("Invert"))
         self.chk_map_invert.setChecked(False)
         ramp_row.addWidget(self.chk_map_invert)
         map_plot_layout.addLayout(ramp_row)
@@ -225,7 +232,7 @@ class PastastoreMainDock(QDockWidget):
         self.chk_map_invert.toggled.connect(self._update_ramp_preview)
         self._update_ramp_preview()
 
-        self.btn_map_plot = QPushButton("Plot on Map")
+        self.btn_map_plot = QPushButton(_tr("Plot on Map"))
         self.btn_map_plot.clicked.connect(
             lambda: self.map_plot_requested.emit(
                 self.combo_map_var.currentData() or "",
@@ -250,9 +257,9 @@ class PastastoreMainDock(QDockWidget):
             table.setSortingEnabled(True)
             table.setContextMenuPolicy(Qt.CustomContextMenu)
 
-        self.tabs.addTab(oseries_widget, "Oseries")
-        self.tabs.addTab(stresses_widget, "Stresses")
-        self.tabs.addTab(models_widget, "Models")
+        self.tabs.addTab(oseries_widget, _tr("Oseries"))
+        self.tabs.addTab(stresses_widget, _tr("Stresses"))
+        self.tabs.addTab(models_widget, _tr("Models"))
 
         self.table_oseries.itemSelectionChanged.connect(
             lambda: self._on_selection_changed("oseries")
@@ -302,12 +309,12 @@ class PastastoreMainDock(QDockWidget):
         self.btn_import_stresses.setEnabled(can_use_pronl)
 
         if can_use_pronl:
-            self.btn_import.setToolTip("Import data from external sources")
+            self.btn_import.setToolTip(_tr("Import data from external sources"))
             self.btn_import_stresses.setToolTip(
-                "Import stress data from external sources"
+                _tr("Import stress data from external sources")
             )
         else:
-            locked = "ProNL license required"
+            locked = _tr("ProNL license required")
             self.btn_import.setToolTip(locked)
             self.btn_import_stresses.setToolTip(locked)
 
@@ -328,7 +335,7 @@ class PastastoreMainDock(QDockWidget):
 
         menu = QMenu()
 
-        add_menu = QMenu("Add column", self)
+        add_menu = QMenu(_tr("Add column"), self)
         for label, stat in self.AVAILABLE_MODEL_STATS:
             if stat not in self._model_extra_cols:
                 action = QAction(label, self)
@@ -341,7 +348,7 @@ class PastastoreMainDock(QDockWidget):
         menu.addMenu(add_menu)
 
         if self._model_extra_cols:
-            remove_menu = QMenu("Remove column", self)
+            remove_menu = QMenu(_tr("Remove column"), self)
             for stat in self._model_extra_cols:
                 label = next(
                     (lbl for lbl, s in self.AVAILABLE_MODEL_STATS if s == stat), stat
@@ -413,7 +420,7 @@ class PastastoreMainDock(QDockWidget):
 
         # Create Model(s) - at the top
         if len(names) == 1:
-            create_model_action = QAction("Create Model", self)
+            create_model_action = QAction(_tr("Create Model"), self)
             create_model_action.setIcon(
                 QgsApplication.getThemeIcon("/mActionNewMemoryLayer.svg")
             )
@@ -422,14 +429,14 @@ class PastastoreMainDock(QDockWidget):
             )
             menu.addAction(create_model_action)
 
-            edit_action = QAction("Edit Series", self)
+            edit_action = QAction(_tr("Edit Series"), self)
             edit_action.setIcon(QgsApplication.getThemeIcon("/mActionEditTable.svg"))
             edit_action.triggered.connect(
                 lambda: self.edit_oseries_requested.emit(names[0])
             )
             menu.addAction(edit_action)
         else:
-            create_models_action = QAction("Create Models", self)
+            create_models_action = QAction(_tr("Create Models"), self)
             create_models_action.setIcon(
                 QgsApplication.getThemeIcon("/mActionNewMemoryLayer.svg")
             )
@@ -438,14 +445,14 @@ class PastastoreMainDock(QDockWidget):
             )
             menu.addAction(create_models_action)
 
-        select_action = QAction("Select Models", self)
+        select_action = QAction(_tr("Select Models"), self)
         select_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
         select_action.triggered.connect(
             lambda: self.select_models_for_oseries_requested.emit(names)
         )
         menu.addAction(select_action)
 
-        delete_action = QAction("Delete Oseries", self)
+        delete_action = QAction(_tr("Delete Oseries"), self)
         delete_action.setIcon(QgsApplication.getThemeIcon("/mActionDeleteSelected.svg"))
         delete_action.triggered.connect(
             lambda: self.delete_oseries_requested.emit(names)
@@ -466,14 +473,14 @@ class PastastoreMainDock(QDockWidget):
         names = [self.table_stresses.item(row, 0).text() for row in rows]
 
         menu = QMenu()
-        select_action = QAction("Select Models", self)
+        select_action = QAction(_tr("Select Models"), self)
         select_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
         select_action.triggered.connect(
             lambda: self.select_models_for_stresses_requested.emit(names)
         )
         menu.addAction(select_action)
 
-        delete_action = QAction("Delete Stresses", self)
+        delete_action = QAction(_tr("Delete Stresses"), self)
         delete_action.setIcon(QgsApplication.getThemeIcon("/mActionDeleteSelected.svg"))
         delete_action.triggered.connect(
             lambda: self.delete_stresses_requested.emit(names)
@@ -509,21 +516,21 @@ class PastastoreMainDock(QDockWidget):
 
         # Edit Action (Single selection only)
         if len(names) == 1:
-            edit_action = QAction("View Model", self)
+            edit_action = QAction(_tr("View Model"), self)
             edit_action.setIcon(QgsApplication.getThemeIcon("/mActionEditTable.svg"))
             edit_action.triggered.connect(
                 lambda: self.edit_model_requested.emit(names[0])
             )
             menu.addAction(edit_action)
 
-            results_action = QAction("Show Results", self)
+            results_action = QAction(_tr("Show Results"), self)
             results_action.setIcon(QgsApplication.getThemeIcon("/mIconTable.svg"))
             results_action.triggered.connect(
                 lambda: self.results_requested.emit(names[0])
             )
             menu.addAction(results_action)
 
-            diagnostics_action = QAction("Show Diagnostics", self)
+            diagnostics_action = QAction(_tr("Show Diagnostics"), self)
             diagnostics_action.setIcon(QgsApplication.getThemeIcon("/mIconTable.svg"))
             diagnostics_action.triggered.connect(
                 lambda: self.diagnostics_requested.emit(names[0])
@@ -531,34 +538,34 @@ class PastastoreMainDock(QDockWidget):
             menu.addAction(diagnostics_action)
 
             mpl_menu = QMenu("Matplotlib", self)
-            mpl_results_action = QAction("Show Results", self)
+            mpl_results_action = QAction(_tr("Show Results"), self)
             mpl_results_action.triggered.connect(
                 lambda: self.mpl_results_requested.emit(names[0])
             )
             mpl_menu.addAction(mpl_results_action)
 
-            mpl_diag_action = QAction("Show Diagnostics", self)
+            mpl_diag_action = QAction(_tr("Show Diagnostics"), self)
             mpl_diag_action.triggered.connect(
                 lambda: self.mpl_diagnostics_requested.emit(names[0])
             )
             mpl_menu.addAction(mpl_diag_action)
             menu.addMenu(mpl_menu)
 
-        select_oseries_action = QAction("Select Oseries", self)
+        select_oseries_action = QAction(_tr("Select Oseries"), self)
         select_oseries_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
         select_oseries_action.triggered.connect(
             lambda: self.select_oseries_for_models_requested.emit(names)
         )
         menu.addAction(select_oseries_action)
 
-        select_stresses_action = QAction("Select Stresses", self)
+        select_stresses_action = QAction(_tr("Select Stresses"), self)
         select_stresses_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
         select_stresses_action.triggered.connect(
             lambda: self.select_stresses_for_models_requested.emit(names)
         )
         menu.addAction(select_stresses_action)
 
-        delete_action = QAction("Delete Model(s)", self)
+        delete_action = QAction(_tr("Delete Model(s)"), self)
         delete_action.setIcon(QgsApplication.getThemeIcon("/mActionDeleteSelected.svg"))
         delete_action.triggered.connect(
             lambda: self.delete_model_requested.emit(names)

@@ -74,13 +74,18 @@ from .bro_import_dialog import BROImportDialog
 from .knmi_import_dialog import KNMIImportDialog
 from .bulk_models_dialog import BulkModelsDialog
 from .license_manager import LicenseManager, FEATURE_PRO, FEATURE_PRONL
+from .i18n_helper import tr as _i18n_tr
+
+
+def _tr(message):
+    return _i18n_tr(message)
 
 
 class LicenseManagerDialog(QDialog):
     def __init__(self, plugin, parent=None):
         super().__init__(parent)
         self.plugin = plugin
-        self.setWindowTitle("License Manager")
+        self.setWindowTitle(_tr("License Manager"))
         self.resize(520, 260)
 
         layout = QVBoxLayout(self)
@@ -100,10 +105,10 @@ class LicenseManagerDialog(QDialog):
         layout.addWidget(self.machine_label)
 
         button_row = QHBoxLayout()
-        self.activate_btn = QPushButton("Activate/Update")
-        self.validate_btn = QPushButton("Validate Online")
-        self.deactivate_btn = QPushButton("Deactivate")
-        self.close_btn = QPushButton("Close")
+        self.activate_btn = QPushButton(_tr("Activate/Update"))
+        self.validate_btn = QPushButton(_tr("Validate Online"))
+        self.deactivate_btn = QPushButton(_tr("Deactivate"))
+        self.close_btn = QPushButton(_tr("Close"))
 
         button_row.addWidget(self.activate_btn)
         button_row.addWidget(self.validate_btn)
@@ -122,15 +127,23 @@ class LicenseManagerDialog(QDialog):
     def refresh_info(self):
         state = self.plugin.license_manager.state
         status = self.plugin.license_manager.status_text()
-        features = ", ".join(state.features) if state.features else "none"
+        features = ", ".join(state.features) if state.features else _tr("none")
         machine_id = self.plugin.license_manager.machine_id
 
-        self.status_label.setText(f"Status: {status}")
-        self.customer_label.setText(f"Customer: {state.customer_name or 'n/a'}")
-        self.type_label.setText(f"License type: {state.license_type}")
-        self.features_label.setText(f"Features: {features}")
-        self.expires_label.setText(f"Expires: {state.expires_at or 'n/a'}")
-        self.machine_label.setText(f"Machine ID: {machine_id}")
+        self.status_label.setText(_tr("Status: {status}").format(status=status))
+        self.customer_label.setText(
+            _tr("Customer: {name}").format(name=state.customer_name or _tr("n/a"))
+        )
+        self.type_label.setText(
+            _tr("License type: {type}").format(type=state.license_type)
+        )
+        self.features_label.setText(
+            _tr("Features: {features}").format(features=features)
+        )
+        self.expires_label.setText(
+            _tr("Expires: {date}").format(date=state.expires_at or _tr("n/a"))
+        )
+        self.machine_label.setText(_tr("Machine ID: {id}").format(id=machine_id))
 
     def _on_activate(self):
         self.plugin.manage_license()
@@ -178,7 +191,7 @@ class PastastoreViewer:
         return "0.1"
 
     def tr(self, message):
-        return QCoreApplication.translate("PastastoreViewer", message)
+        return _i18n_tr(message)
 
     def initGui(self):
         icon_path = os.path.join(self.plugin_dir, "icon.svg")

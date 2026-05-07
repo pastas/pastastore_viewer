@@ -36,6 +36,12 @@ from qgis.core import (
 from qgis.gui import QgsMapTool, QgsRubberBand
 import pandas as pd
 import numpy as np
+from .i18n_helper import tr as _i18n_tr
+
+
+def _tr(message):
+    return _i18n_tr(message)
+
 
 try:
     import pyqtgraph as pg
@@ -158,7 +164,7 @@ class BROImportDialog(QDialog):
         self._previous_map_tool = None
         self._restore_dialog_after_map_select = False
 
-        self.setWindowTitle("Import from BRO")
+        self.setWindowTitle(_tr("Import from BRO"))
         self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
         self.resize(1200, 800)
 
@@ -176,14 +182,14 @@ class BROImportDialog(QDialog):
         layout = QVBoxLayout()
 
         # Input method selection
-        input_group = QGroupBox("Data Source")
+        input_group = QGroupBox(_tr("Data Source"))
         input_layout = QVBoxLayout()
 
         # Radio buttons for selection method
         radio_layout = QHBoxLayout()
         self.btn_group = QButtonGroup()
-        self.radio_id = QRadioButton("By ID")
-        self.radio_map = QRadioButton("By Map Selection")
+        self.radio_id = QRadioButton(_tr("By ID"))
+        self.radio_map = QRadioButton(_tr("By Map Selection"))
         self.radio_id.setChecked(True)
         self.btn_group.addButton(self.radio_id)
         self.btn_group.addButton(self.radio_map)
@@ -195,18 +201,18 @@ class BROImportDialog(QDialog):
 
         # ID input
         id_layout = QHBoxLayout()
-        id_layout.addWidget(QLabel("ID:"))
+        id_layout.addWidget(QLabel(_tr("ID:")))
         self.le_id = QLineEdit()
-        self.le_id.setPlaceholderText("Enter GMN-ID, GMW-ID, Well Code, or GLD-ID")
+        self.le_id.setPlaceholderText(_tr("Enter GMN-ID, GMW-ID, Well Code, or GLD-ID"))
         id_layout.addWidget(self.le_id)
-        self.btn_download = QPushButton("Download")
+        self.btn_download = QPushButton(_tr("Download"))
         self.btn_download.clicked.connect(self._download_by_id)
         id_layout.addWidget(self.btn_download)
         input_layout.addLayout(id_layout)
 
         # Format selection
         format_layout = QHBoxLayout()
-        format_layout.addWidget(QLabel("Format of GLD-data:"))
+        format_layout.addWidget(QLabel(_tr("Format of GLD-data:")))
         self.combo_format = QComboBox()
         self.combo_format.addItems(["XML", "CSV"])
         self.combo_format.setCurrentText("CSV")
@@ -217,18 +223,18 @@ class BROImportDialog(QDialog):
 
         # Download path selection
         path_layout = QHBoxLayout()
-        path_layout.addWidget(QLabel("Download path (optional):"))
+        path_layout.addWidget(QLabel(_tr("Download path (optional):")))
         self.le_download_path = QLineEdit()
-        self.le_download_path.setPlaceholderText("Leave empty to skip saving files")
+        self.le_download_path.setPlaceholderText(_tr("Leave empty to skip saving files"))
         path_layout.addWidget(self.le_download_path)
-        self.btn_browse_path = QPushButton("Browse")
+        self.btn_browse_path = QPushButton(_tr("Browse"))
         self.btn_browse_path.clicked.connect(self._browse_download_path)
         path_layout.addWidget(self.btn_browse_path)
         input_layout.addLayout(path_layout)
 
         # Map selection button
         map_layout = QHBoxLayout()
-        self.btn_map_select = QPushButton("Select Area on Map")
+        self.btn_map_select = QPushButton(_tr("Select Area on Map"))
         self.btn_map_select.setEnabled(False)
         self.btn_map_select.clicked.connect(self._select_from_map)
         map_layout.addWidget(self.btn_map_select)
@@ -242,7 +248,7 @@ class BROImportDialog(QDialog):
         splitter = QSplitter(Qt.Horizontal)
 
         # Left side: Series list with metadata selection
-        left_widget = QGroupBox("Downloaded Series")
+        left_widget = QGroupBox(_tr("Downloaded Series"))
         left_layout = QVBoxLayout()
 
         # Series table
@@ -261,21 +267,21 @@ class BROImportDialog(QDialog):
         left_layout.addWidget(self.table_series)
 
         table_selection_layout = QHBoxLayout()
-        self.btn_select_all_locations = QPushButton("Select All Locations")
+        self.btn_select_all_locations = QPushButton(_tr("Select All Locations"))
         self.btn_select_all_locations.clicked.connect(self._select_all_locations)
         table_selection_layout.addWidget(self.btn_select_all_locations)
-        self.btn_deselect_all_locations = QPushButton("Deselect All Locations")
+        self.btn_deselect_all_locations = QPushButton(_tr("Deselect All Locations"))
         self.btn_deselect_all_locations.clicked.connect(self._deselect_all_locations)
         table_selection_layout.addWidget(self.btn_deselect_all_locations)
         table_selection_layout.addStretch()
         left_layout.addLayout(table_selection_layout)
 
         # Global metadata selectors
-        metadata_group = QGroupBox("Metadata Options (Multi-select)")
+        metadata_group = QGroupBox(_tr("Metadata Options (Multi-select)"))
         metadata_layout = QVBoxLayout()
 
         # Status selector
-        metadata_layout.addWidget(QLabel("Status:"))
+        metadata_layout.addWidget(QLabel(_tr("Status:")))
         self.list_status = QListWidget()
         self.list_status.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.list_status.setMaximumHeight(80)
@@ -283,7 +289,7 @@ class BROImportDialog(QDialog):
         metadata_layout.addWidget(self.list_status)
 
         # Qualifier selector
-        metadata_layout.addWidget(QLabel("Qualifier:"))
+        metadata_layout.addWidget(QLabel(_tr("Qualifier:")))
         self.list_qualifier = QListWidget()
         self.list_qualifier.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.list_qualifier.setMaximumHeight(80)
@@ -291,7 +297,7 @@ class BROImportDialog(QDialog):
         metadata_layout.addWidget(self.list_qualifier)
 
         # Observation type selector
-        metadata_layout.addWidget(QLabel("Observation Type:"))
+        metadata_layout.addWidget(QLabel(_tr("Observation Type:")))
         self.list_obs_type = QListWidget()
         self.list_obs_type.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.list_obs_type.setMaximumHeight(60)
@@ -299,7 +305,7 @@ class BROImportDialog(QDialog):
         metadata_layout.addWidget(self.list_obs_type)
 
         # Apply filter changes only to currently selected series
-        self.chk_only_this_series = QCheckBox("Only for this series")
+        self.chk_only_this_series = QCheckBox(_tr("Only for this series"))
         self.chk_only_this_series.setChecked(False)
         self.chk_only_this_series.toggled.connect(self._on_only_this_series_toggled)
         metadata_layout.addWidget(self.chk_only_this_series)
@@ -340,12 +346,12 @@ class BROImportDialog(QDialog):
         button_layout = QHBoxLayout()
         button_layout.addStretch()
 
-        self.btn_add_store = QPushButton("Add to Store")
+        self.btn_add_store = QPushButton(_tr("Add to Store"))
         self.btn_add_store.clicked.connect(self._add_to_store)
         self.btn_add_store.setEnabled(False)
         button_layout.addWidget(self.btn_add_store)
 
-        self.btn_close = QPushButton("Close")
+        self.btn_close = QPushButton(_tr("Close"))
         self.btn_close.clicked.connect(self.reject)
         button_layout.addWidget(self.btn_close)
 
