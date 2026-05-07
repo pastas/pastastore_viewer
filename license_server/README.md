@@ -138,7 +138,7 @@ Invoke-RestMethod -Method Post `
 ```powershell
 Invoke-RestMethod `
   -Uri "https://pastastore-license-server.fly.dev/admin/licenses" `
-  -Headers @{ "X-Admin-Token" = "REDACTED_ADMIN_TOKEN" }
+  -Headers @{ "X-Admin-Token" = "YOUR_ADMIN_TOKEN" }
 ```
 4. Activate license in plugin with URL `https://pastastore-license-server.fly.dev`.
 5. Use `Validate License Online` in the plugin.
