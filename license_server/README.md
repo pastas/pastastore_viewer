@@ -25,6 +25,12 @@ pip install -r requirements.txt
 uvicorn app:app --host 0.0.0.0 --port 8787
 ```
 
+Of via Fly.io (gebruikt poort 8787 conform `fly.toml`):
+
+```bash
+fly deploy
+```
+
 3. Zet admin token:
 
 ```bash
@@ -42,7 +48,7 @@ curl -X POST http://localhost:8787/admin/licenses ^
 
 5. Activeer in plugin met:
 - license key uit stap 4
-- server URL (bijv. `https://YOUR_RENDER_URL`)
+- server URL (bijv. `https://pastastore-license-server.fly.dev`)
 
 ## API
 
@@ -70,71 +76,109 @@ Tabellen:
 - `licenses`
 - `activations`
 
-## Deploy op Render
+## Deploy op Fly.io
 
-### Optie A: Render Blueprint (aanbevolen)
+Fly.io heeft een **gratis tier** (3 kleine VMs) en ondersteunt persistent volumes — geschikt voor productiegebruik zonder maandelijkse vaste kosten bij laag gebruik.
 
-Gebruik [render.yaml](../render.yaml).
+### Vereisten
 
-Stappen:
-1. Push repository naar GitHub.
-2. In Render: New + > Blueprint.
-3. Kies repository en deploy.
-4. Zet na deploy `LICENSE_ADMIN_TOKEN` (indien niet automatisch gegenereerd naar wens).
-
-Blueprint configureert:
-- Root directory `license_server`
-- Build/start commands
-- Health check `/health`
-- Persistent disk `/var/data`
-- `LICENSE_DB_PATH=/var/data/license_server.db`
-
-### Optie B: Handmatig Web Service instellen
-
-1. Push repository naar GitHub.
-2. Maak in Render een nieuwe Web Service.
-3. Root Directory: `license_server`.
-4. Build Command:
+Installeer de Fly CLI:
 
 ```bash
-pip install -r requirements.txt
+# Windows (PowerShell)
+pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"
 ```
 
-5. Start Command:
+Daarna inloggen:
 
 ```bash
-uvicorn app:app --host 0.0.0.0 --port $PORT
+fly auth login
 ```
 
-6. Environment Variables:
-- `LICENSE_ADMIN_TOKEN`: sterk geheim token
-- `LICENSE_DB_PATH`: `/var/data/license_server.db`
+### Stappen
 
-7. Health Check Path: `/health`
+1. **Ga naar de `license_server` map:**
 
-8. Voeg Persistent Disk toe en mount op `/var/data`.
+```bash
+cd license_server
+```
 
-## Eerste productie-checklist (Render)
+2. **Initialiseer de Fly app** (eenmalig — sla `fly.toml` op in git):
+
+```bash
+fly launch --name pastastore-license-server --region ams --no-deploy
+```
+
+   Kies bij de prompt **geen** Postgres of Redis.
+
+3. **Maak een persistent volume aan** (eenmalig):
+
+```bash
+fly volumes create license_data --region ams --size 1
+```
+
+4. **Stel het admin token in als secret:**
+
+```bash
+fly secrets set LICENSE_ADMIN_TOKEN=vervang-met-sterk-token
+```
+
+5. **Deploy:**
+
+```bash
+fly deploy
+```
+
+6. **Controleer de app URL:**
+
+```bash
+fly status
+```
+
+   De URL is `https://pastastore-license-server.fly.dev` (of de naam die je hebt gekozen).
+
+### Updates deployen
+
+```bash
+fly deploy
+```
+
+Het volume blijft behouden tussen deploys.
+
+## Eerste productie-checklist (Fly.io)
 
 Vervang in voorbeelden:
-- `YOUR_RENDER_URL`
-- `YOUR_ADMIN_TOKEN`
+- `YOUR_FLY_APP` door jouw app-naam (bijv. `pastastore-license-server`)
+- `YOUR_ADMIN_TOKEN` door het token dat je met `fly secrets set` hebt ingesteld
 
 1. Health check:
 
 ```bash
-curl https://YOUR_RENDER_URL/health
+curl https://YOUR_FLY_APP.fly.dev/health
 ```
 
 2. Eerste licentie aanmaken:
 
 ```bash
-curl -X POST https://YOUR_RENDER_URL/admin/licenses \
+curl -X POST https://YOUR_FLY_APP.fly.dev/admin/licenses \
   -H "Content-Type: application/json" \
   -H "X-Admin-Token: YOUR_ADMIN_TOKEN" \
   -d '{"customer_name":"Waterbedrijf X","license_type":"proNL","days_valid":365,"max_devices":5}'
 ```
 
-3. Activeer licentie in plugin.
+3. Activeer licentie in plugin met URL `https://YOUR_FLY_APP.fly.dev`.
 4. Gebruik in plugin `Validate License Online`.
 5. Controleer feature locks (free/pro/proNL).
+
+### Logs bekijken
+
+```bash
+fly logs
+```
+
+### App stoppen/starten
+
+```bash
+fly scale count 0   # stoppen
+fly scale count 1   # starten
+```

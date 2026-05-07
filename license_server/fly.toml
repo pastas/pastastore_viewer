@@ -1,0 +1,27 @@
+app = "pastastore-license-server"
+primary_region = "ams"
+
+[build]
+
+[env]
+  LICENSE_DB_PATH = "/var/data/license_server.db"
+
+[mounts]
+  source = "license_data"
+  destination = "/var/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 200
+    soft_limit = 150
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
