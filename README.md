@@ -53,3 +53,28 @@ pip install -r requirements.txt
 
 ## Settings
 You can change the expected coordinate column names in the **Settings** menu. The plugin will also try to automatically detect columns containing 'x' or 'y' if the defaults are not found.
+
+## Licensing (Free, Pro, ProNL)
+
+The plugin now supports three tiers:
+- Free: viewing and plotting data.
+- Pro: model creation/editing workflows.
+- ProNL: Pro + BRO/KNMI import workflows for Dutch data.
+
+### Plugin side
+
+Use the Plugin menu entries:
+- Activate/Update License
+- Validate License Online
+- Deactivate License
+
+The plugin uses a strict online workflow: paid features are enabled only after successful online activation/validation against the license server.
+
+Without server connectivity, the plugin falls back to free-only mode for paid features.
+
+### Server side
+
+A reference FastAPI license server is included in [license_server/README.md](license_server/README.md).
+
+Important:
+- Deploy and configure the license server from [license_server/README.md](license_server/README.md).

@@ -68,6 +68,7 @@ from .oseries_editor import OseriesEditorDialog
 from .bro_import_dialog import BROImportDialog
 from .knmi_import_dialog import KNMIImportDialog
 from .bulk_models_dialog import BulkModelsDialog
+from .license_manager import LicenseManager, FEATURE_PRO, FEATURE_PRONL
 
 
 class PastastoreViewer:
@@ -76,16 +77,32 @@ class PastastoreViewer:
     def __init__(self, iface):
         self.iface = iface
         self.plugin_dir = os.path.dirname(__file__)
+        self.plugin_version = self._read_plugin_version()
         self.actions = []
         self.menu = self.tr("&Pastastore Viewer")
         self.store = None
         self.dock_widget = None
         self.plot_dock = None
         self.action = None
+        self.license_action = None
+        self.license_validate_action = None
+        self.license_deactivate_action = None
         self.is_updating_selection = False
         self.store_modified = False
         self.bro_import_dialog = None
         self.knmi_import_dialog = None
+        self.license_manager = LicenseManager(self.plugin_dir, self.plugin_version)
+
+    def _read_plugin_version(self):
+        metadata_file = os.path.join(self.plugin_dir, "metadata.txt")
+        try:
+            with open(metadata_file, "r", encoding="utf-8") as handle:
+                for line in handle:
+                    if line.strip().startswith("version="):
+                        return line.split("=", 1)[1].strip() or "0.1"
+        except Exception:
+            pass
+        return "0.1"
 
     def tr(self, message):
         return QCoreApplication.translate("PastastoreViewer", message)
@@ -106,6 +123,27 @@ class PastastoreViewer:
         self.iface.addToolBarIcon(self.action)
         self.actions.append(self.action)
 
+        self.license_action = QAction(
+            self.tr("Activate/Update License"), self.iface.mainWindow()
+        )
+        self.license_action.triggered.connect(self.manage_license)
+        self.iface.addPluginToMenu(self.menu, self.license_action)
+        self.actions.append(self.license_action)
+
+        self.license_validate_action = QAction(
+            self.tr("Validate License Online"), self.iface.mainWindow()
+        )
+        self.license_validate_action.triggered.connect(self.validate_license_online)
+        self.iface.addPluginToMenu(self.menu, self.license_validate_action)
+        self.actions.append(self.license_validate_action)
+
+        self.license_deactivate_action = QAction(
+            self.tr("Deactivate License"), self.iface.mainWindow()
+        )
+        self.license_deactivate_action.triggered.connect(self.deactivate_license)
+        self.iface.addPluginToMenu(self.menu, self.license_deactivate_action)
+        self.actions.append(self.license_deactivate_action)
+
         # Connect to selection changes on map
         self.iface.mapCanvas().selectionChanged.connect(self.on_map_selection_changed)
 
@@ -117,6 +155,8 @@ class PastastoreViewer:
         # Check if project is already loaded (e.g. plugin reload)
         if QgsProject.instance().fileName():
             self.on_project_read()
+
+        self._update_license_ui()
 
     def unload(self):
         if not self._prompt_save_if_needed(allow_cancel=True):
@@ -198,10 +238,14 @@ class PastastoreViewer:
         if main_dock_created:
             self.dock_widget.restore_state_from_project()
 
+        self._update_license_ui()
+
         return self.dock_widget
 
     def run(self):
         """Run method that loads the dock widgets."""
+        self.license_manager.refresh_state()
+        self.validate_license_online(silent=True)
         self.create_dock()
 
         if self.store is None:
@@ -214,6 +258,92 @@ class PastastoreViewer:
         self.plot_dock.show()
         self.plot_dock.raise_()
         self.plot_dock.activateWindow()
+
+    def _update_license_ui(self):
+        status = self.license_manager.status_text()
+
+        if self.license_action:
+            self.license_action.setText(self.tr(f"License: {status}"))
+
+        if self.dock_widget:
+            self.dock_widget.set_license_capabilities(
+                can_use_pro=self.license_manager.has_feature(FEATURE_PRO),
+                can_use_pronl=self.license_manager.has_feature(FEATURE_PRONL),
+            )
+
+    def _require_feature(self, feature, feature_label):
+        if self.license_manager.has_feature(feature):
+            return True
+
+        QMessageBox.information(
+            self.iface.mainWindow(),
+            "Paid feature",
+            f"Deze actie vereist {feature_label}.\n\n"
+            f"Huidige licentie: {self.license_manager.status_text()}\n"
+            "Gebruik Plugin menu > Activate/Update License om te activeren.",
+        )
+        return False
+
+    def manage_license(self):
+        current_status = self.license_manager.status_text()
+        key, ok = QInputDialog.getText(
+            self.iface.mainWindow(),
+            "Activate or update license",
+            f"Huidige status: {current_status}\n\nVoer je licentiesleutel in:",
+        )
+        if not ok:
+            return
+
+        key = (key or "").strip()
+        if not key:
+            return
+
+        server_url, ok = QInputDialog.getText(
+            self.iface.mainWindow(),
+            "License server URL",
+            "Voer de licentieserver URL in (bijv. https://licenses.example.com):",
+            text="http://localhost:8787",
+        )
+        if not ok:
+            return
+
+        success, message = self.license_manager.activate(key, server_url)
+        if success:
+            self.iface.messageBar().pushMessage("Success", message, level=0)
+        else:
+            QMessageBox.warning(self.iface.mainWindow(), "License", message)
+
+        self._update_license_ui()
+
+    def validate_license_online(self, silent=False):
+        success, message = self.license_manager.validate_online(force=True)
+        self._update_license_ui()
+
+        if silent:
+            return
+
+        if success:
+            self.iface.messageBar().pushMessage("Success", message, level=0)
+        else:
+            QMessageBox.warning(self.iface.mainWindow(), "License", message)
+
+    def deactivate_license(self):
+        reply = QMessageBox.question(
+            self.iface.mainWindow(),
+            "Deactivate license",
+            "Deze machine deactiveren en lokale licentie verwijderen?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        success, message = self.license_manager.deactivate()
+        if success:
+            self.iface.messageBar().pushMessage("Success", message, level=0)
+        else:
+            QMessageBox.warning(self.iface.mainWindow(), "License", message)
+        self._update_license_ui()
 
     def on_project_read(self):
         """Called when a project is loaded."""
@@ -1188,6 +1318,8 @@ class PastastoreViewer:
     def open_model_editor(self, model_name):
         if not self.store:
             return
+        if not self._require_feature(FEATURE_PRO, "Pro"):
+            return
 
         try:
             # Get the model (create a copy/new instance to be safe)
@@ -1277,6 +1409,8 @@ class PastastoreViewer:
     def create_model_from_oseries(self, oseries_name):
         if not self.store:
             return
+        if not self._require_feature(FEATURE_PRO, "Pro"):
+            return
         if not HAS_PASTAS:
             QMessageBox.critical(
                 self.iface.mainWindow(),
@@ -1333,6 +1467,8 @@ class PastastoreViewer:
 
     def create_models_from_oseries(self, oseries_names):
         if not self.store:
+            return
+        if not self._require_feature(FEATURE_PRO, "Pro"):
             return
         if not HAS_PASTAS:
             QMessageBox.critical(
@@ -2101,6 +2237,8 @@ class PastastoreViewer:
                 "Warning", "Please load a pastastore first.", level=1
             )
             return
+        if not self._require_feature(FEATURE_PRONL, "ProNL"):
+            return
 
         try:
             if self.bro_import_dialog is not None and self.bro_import_dialog.isVisible():
@@ -2135,6 +2273,8 @@ class PastastoreViewer:
             self.iface.messageBar().pushMessage(
                 "Warning", "Please load a pastastore first.", level=1
             )
+            return
+        if not self._require_feature(FEATURE_PRONL, "ProNL"):
             return
 
         try:

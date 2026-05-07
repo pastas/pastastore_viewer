@@ -295,6 +295,22 @@ class PastastoreMainDock(QDockWidget):
         if name_item:
             self.edit_model_requested.emit(name_item.text())
 
+    def set_license_capabilities(self, can_use_pro, can_use_pronl):
+        del can_use_pro  # reserved for future UI controls
+
+        self.btn_import.setEnabled(can_use_pronl)
+        self.btn_import_stresses.setEnabled(can_use_pronl)
+
+        if can_use_pronl:
+            self.btn_import.setToolTip("Import data from external sources")
+            self.btn_import_stresses.setToolTip(
+                "Import stress data from external sources"
+            )
+        else:
+            locked = "ProNL license required"
+            self.btn_import.setToolTip(locked)
+            self.btn_import_stresses.setToolTip(locked)
+
     # Available statistics for model columns
     AVAILABLE_MODEL_STATS = [
         ("EVP [%]", "evp"),

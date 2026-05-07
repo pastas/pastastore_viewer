@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: pastastore-license-server
+    env: python
+    plan: starter
+    rootDir: license_server
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: LICENSE_ADMIN_TOKEN
+        generateValue: true
+      - key: LICENSE_DB_PATH
+        value: /var/data/license_server.db
+    disk:
+      name: license-data
+      mountPath: /var/data
+      sizeGB: 1

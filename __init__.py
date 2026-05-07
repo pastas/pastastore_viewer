@@ -7,10 +7,12 @@
  ***************************************************************************/
 """
 
+import importlib
 import importlib.util
 import os
 import subprocess
 import sys
+import threading
 from contextlib import contextmanager
 
 _REQUIRED_PACKAGES = ["pastastore", "pastas", "pyqtgraph"]
@@ -58,13 +60,105 @@ def _add_vendor_paths():
                     sys.path.insert(0, path)
 
 
+def _clear_import_cache():
+    """Clear Python import caches after installing new packages."""
+    try:
+        importlib.invalidate_caches()
+        # Clear any cached imports of our packages
+        for name in _REQUIRED_PACKAGES:
+            if name in sys.modules:
+                del sys.modules[name]
+            # Also clear submodules
+            to_remove = [k for k in sys.modules.keys() if k.startswith(name + ".")]
+            for k in to_remove:
+                del sys.modules[k]
+    except Exception:
+        pass
+
+
 def _missing_packages():
     missing = []
+    _clear_import_cache()
     with _isolated_import():
         for name in _REQUIRED_PACKAGES:
             if importlib.util.find_spec(name) is None:
                 missing.append(name)
     return missing
+
+
+def _install_packages_threaded(missing, deps_dir):
+    """Install packages in a background thread to prevent QGIS blocking/restart."""
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "--upgrade",
+        "--target",
+        deps_dir,
+    ]
+    cmd.extend(missing)
+
+    # Sanitize environment to prevent subprocess from triggering QGIS restart
+    env = os.environ.copy()
+    # Remove variables that might interfere with subprocess
+    for key in ["PYTHONPATH", "QGIS_PREFIX_PATH", "QT_PLUGIN_PATH"]:
+        env.pop(key, None)
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+            universal_newlines=True,
+        )
+        stdout, stderr = process.communicate(timeout=300)
+        return process.returncode == 0, stdout, stderr
+    except subprocess.TimeoutExpired:
+        process.kill()
+        return False, "", "Installation timed out after 5 minutes."
+    except Exception as exc:
+        return False, "", str(exc)
+
+
+def _handle_install_result(success, stdout, stderr, missing, progress):
+    """Handle installation result in main thread."""
+    from qgis.PyQt.QtWidgets import QMessageBox
+
+    try:
+        progress.close()
+    except Exception:
+        pass
+
+    if not success:
+        QMessageBox.critical(
+            None,
+            "Install failed",
+            f"Failed to install required packages ({', '.join(missing)})",
+        )
+        return
+
+    # Clear caches after successful installation
+    _clear_import_cache()
+
+    # Verify installation by checking again
+    still_missing = _missing_packages()
+    if still_missing:
+        QMessageBox.warning(
+            None,
+            "Installation verification failed",
+            f"Installation completed but packages still missing: {', '.join(still_missing)}",
+        )
+        return
+
+    global _RUNTIME_INSTALL_DONE
+    _RUNTIME_INSTALL_DONE = True
+    QMessageBox.information(
+        None,
+        "Installation successful",
+        f"Successfully installed: {', '.join(missing)}",
+    )
 
 
 def _ensure_runtime_deps():
@@ -108,28 +202,30 @@ def _ensure_runtime_deps():
     deps_dir = os.path.join(plugin_dir, "dependencies")
     os.makedirs(deps_dir, exist_ok=True)
 
-    cmd = [
-        sys.executable,
-        "-m",
-        "pip",
-        "install",
-        "--upgrade",
-        "--target",
-        deps_dir,
-    ]
-    cmd.extend(missing)
+    # Show progress dialog
+    from qgis.PyQt.QtWidgets import QProgressDialog
+    from qgis.PyQt.QtCore import Qt, QTimer
 
-    exit_code = subprocess.call(cmd)
-    if exit_code != 0:
-        QMessageBox.critical(
-            None,
-            "Install failed",
-            "Failed to install required packages. "
-            "Check your internet connection and try again.",
-        )
-        return
+    progress = QProgressDialog(
+        f"Installing {', '.join(missing)}...\n\nPlease wait.",
+        "Cancel",
+        0,
+        0,
+        None,
+    )
+    progress.setWindowTitle("Installing Dependencies")
+    progress.setWindowModality(Qt.ApplicationModal)
+    progress.setMinimumDuration(0)
+    progress.show()
 
-    _RUNTIME_INSTALL_DONE = True
+    # Run installation in background thread
+    def run_install():
+        success, stdout, stderr = _install_packages_threaded(missing, deps_dir)
+        # Signal main thread to check results
+        QTimer.singleShot(0, lambda: _handle_install_result(success, stdout, stderr, missing, progress))
+
+    thread = threading.Thread(target=run_install, daemon=True)
+    thread.start()
 
 
 # Check and prompt for runtime dependencies
