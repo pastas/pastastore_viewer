@@ -509,7 +509,7 @@ class PastastoreMainDock(QDockWidget):
 
         # Edit Action (Single selection only)
         if len(names) == 1:
-            edit_action = QAction("Edit Model", self)
+            edit_action = QAction("View Model", self)
             edit_action.setIcon(QgsApplication.getThemeIcon("/mActionEditTable.svg"))
             edit_action.triggered.connect(
                 lambda: self.edit_model_requested.emit(names[0])

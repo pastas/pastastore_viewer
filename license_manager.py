@@ -114,9 +114,9 @@ class LicenseManager:
         key = (license_key or "").strip()
         base_url = _normalize_base_url(server_url or "")
         if not key:
-            return False, "License key ontbreekt."
+            return False, "License key is missing."
         if not base_url:
-            return False, "Server URL ontbreekt."
+            return False, "Server URL is missing."
 
         try:
             response = _post_json(
@@ -132,20 +132,20 @@ class LicenseManager:
             body = exc.read().decode("utf-8", errors="ignore")
             self.state = LicenseState(valid=False, reason=f"Activation failed: HTTP {exc.code}")
             self._session_validated = False
-            return False, f"Activeren mislukt ({exc.code}): {body or exc.reason}"
+            return False, f"Activation failed ({exc.code}): {body or exc.reason}"
         except Exception as exc:
             self.state = LicenseState(valid=False, reason=f"Activation failed: {exc}")
             self._session_validated = False
-            return False, f"Activeren mislukt: {exc}"
+            return False, f"Activation failed: {exc}"
 
         data = self._extract_entitlement(response)
         if not self._apply_online_entitlement(data):
             self._session_validated = False
-            return False, f"Licentie ongeldig: {self.state.reason}"
+            return False, f"Invalid license: {self.state.reason}"
 
         self._write_store({"license_key": key, "server_url": base_url})
         self._session_validated = True
-        return True, "Licentie geactiveerd (online)."
+        return True, "License activated (online)."
 
     def validate_online(self, force: bool = True) -> tuple[bool, str]:
         del force
@@ -153,14 +153,14 @@ class LicenseManager:
         if not stored:
             self._session_validated = False
             self.state = LicenseState(valid=False, reason="No local license settings")
-            return False, "Geen lokale licentie-instellingen gevonden."
+            return False, "No local license settings found."
 
         license_key = stored.get("license_key")
         server_url = stored.get("server_url")
         if not license_key or not server_url:
             self._session_validated = False
             self.state = LicenseState(valid=False, reason="Missing license settings")
-            return False, "Lokale licentie-instellingen incompleet."
+            return False, "Local license settings are incomplete."
 
         try:
             response = _post_json(
@@ -174,24 +174,24 @@ class LicenseManager:
             body = exc.read().decode("utf-8", errors="ignore")
             self._session_validated = False
             self.state = LicenseState(valid=False, reason=f"Online validation failed: HTTP {exc.code}")
-            return False, f"Valideren mislukt ({exc.code}): {body or exc.reason}"
+            return False, f"Validation failed ({exc.code}): {body or exc.reason}"
         except Exception as exc:
             self._session_validated = False
             self.state = LicenseState(valid=False, reason=f"Online validation failed: {exc}")
-            return False, f"Valideren mislukt: {exc}"
+            return False, f"Validation failed: {exc}"
 
         data = self._extract_entitlement(response)
         if not self._apply_online_entitlement(data):
             self._session_validated = False
-            return False, f"Licentie ongeldig: {self.state.reason}"
+            return False, f"Invalid license: {self.state.reason}"
 
         self._session_validated = True
-        return True, "Online validatie voltooid."
+        return True, "Online validation completed."
 
     def deactivate(self) -> tuple[bool, str]:
         stored = self._read_store()
         if not stored:
-            return False, "Geen lokale licentie gevonden."
+            return False, "No local license found."
 
         license_key = stored.get("license_key")
         server_url = stored.get("server_url")
@@ -213,7 +213,7 @@ class LicenseManager:
 
         self._session_validated = False
         self.state = LicenseState(valid=False, reason="No license")
-        return True, "Licentie gedeactiveerd en lokaal verwijderd."
+        return True, "License deactivated and removed locally."
 
     def _extract_entitlement(self, response: dict[str, Any]) -> dict[str, Any]:
         payload = response.get("payload")

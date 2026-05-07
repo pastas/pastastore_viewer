@@ -35,13 +35,14 @@ from pyqtgraph import DateAxisItem
 class ModelEditorDialog(QDialog):
     """Dialog to edit a Pastas model with advanced stressmodel configuration."""
 
-    def __init__(self, model: ps.Model, store: pst.PastaStore, parent=None):
+    def __init__(self, model: ps.Model, store: pst.PastaStore, parent=None, can_solve: bool = True):
         super(ModelEditorDialog, self).__init__(parent)
-        self.setWindowTitle("Edit Model")
+        self.setWindowTitle("View Model")
         self.resize(800, 800)
 
         self.original_model = model
         self.store = store
+        self.can_solve = can_solve
         self.new_model = None
 
         # Helper to get available series
@@ -278,6 +279,9 @@ class ModelEditorDialog(QDialog):
         self.btn_solve = QPushButton("Solve")
         self.btn_solve.setIcon(QgsApplication.getThemeIcon("/mActionRun.svg"))
         self.btn_solve.clicked.connect(self.solve_model)
+        self.btn_solve.setEnabled(self.can_solve)
+        if not self.can_solve:
+            self.btn_solve.setToolTip("Upgrade to Pro to solve models")
 
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.Save | QDialogButtonBox.Cancel

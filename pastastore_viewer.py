@@ -12,6 +12,11 @@ from qgis.PyQt.QtWidgets import (
     QProgressDialog,
     QApplication,
     QInputDialog,
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
 )
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
@@ -71,6 +76,75 @@ from .bulk_models_dialog import BulkModelsDialog
 from .license_manager import LicenseManager, FEATURE_PRO, FEATURE_PRONL
 
 
+class LicenseManagerDialog(QDialog):
+    def __init__(self, plugin, parent=None):
+        super().__init__(parent)
+        self.plugin = plugin
+        self.setWindowTitle("License Manager")
+        self.resize(520, 260)
+
+        layout = QVBoxLayout(self)
+
+        self.status_label = QLabel()
+        self.customer_label = QLabel()
+        self.type_label = QLabel()
+        self.features_label = QLabel()
+        self.expires_label = QLabel()
+        self.machine_label = QLabel()
+
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.customer_label)
+        layout.addWidget(self.type_label)
+        layout.addWidget(self.features_label)
+        layout.addWidget(self.expires_label)
+        layout.addWidget(self.machine_label)
+
+        button_row = QHBoxLayout()
+        self.activate_btn = QPushButton("Activate/Update")
+        self.validate_btn = QPushButton("Validate Online")
+        self.deactivate_btn = QPushButton("Deactivate")
+        self.close_btn = QPushButton("Close")
+
+        button_row.addWidget(self.activate_btn)
+        button_row.addWidget(self.validate_btn)
+        button_row.addWidget(self.deactivate_btn)
+        button_row.addStretch(1)
+        button_row.addWidget(self.close_btn)
+        layout.addLayout(button_row)
+
+        self.activate_btn.clicked.connect(self._on_activate)
+        self.validate_btn.clicked.connect(self._on_validate)
+        self.deactivate_btn.clicked.connect(self._on_deactivate)
+        self.close_btn.clicked.connect(self.close)
+
+        self.refresh_info()
+
+    def refresh_info(self):
+        state = self.plugin.license_manager.state
+        status = self.plugin.license_manager.status_text()
+        features = ", ".join(state.features) if state.features else "none"
+        machine_id = self.plugin.license_manager.machine_id
+
+        self.status_label.setText(f"Status: {status}")
+        self.customer_label.setText(f"Customer: {state.customer_name or 'n/a'}")
+        self.type_label.setText(f"License type: {state.license_type}")
+        self.features_label.setText(f"Features: {features}")
+        self.expires_label.setText(f"Expires: {state.expires_at or 'n/a'}")
+        self.machine_label.setText(f"Machine ID: {machine_id}")
+
+    def _on_activate(self):
+        self.plugin.manage_license()
+        self.refresh_info()
+
+    def _on_validate(self):
+        self.plugin.validate_license_online(silent=False)
+        self.refresh_info()
+
+    def _on_deactivate(self):
+        self.plugin.deactivate_license()
+        self.refresh_info()
+
+
 class PastastoreViewer:
     """QGIS Plugin Implementation."""
 
@@ -85,8 +159,7 @@ class PastastoreViewer:
         self.plot_dock = None
         self.action = None
         self.license_action = None
-        self.license_validate_action = None
-        self.license_deactivate_action = None
+        self.license_dialog = None
         self.is_updating_selection = False
         self.store_modified = False
         self.bro_import_dialog = None
@@ -123,26 +196,10 @@ class PastastoreViewer:
         self.iface.addToolBarIcon(self.action)
         self.actions.append(self.action)
 
-        self.license_action = QAction(
-            self.tr("Activate/Update License"), self.iface.mainWindow()
-        )
-        self.license_action.triggered.connect(self.manage_license)
+        self.license_action = QAction(self.tr("License Manager..."), self.iface.mainWindow())
+        self.license_action.triggered.connect(self.open_license_manager)
         self.iface.addPluginToMenu(self.menu, self.license_action)
         self.actions.append(self.license_action)
-
-        self.license_validate_action = QAction(
-            self.tr("Validate License Online"), self.iface.mainWindow()
-        )
-        self.license_validate_action.triggered.connect(self.validate_license_online)
-        self.iface.addPluginToMenu(self.menu, self.license_validate_action)
-        self.actions.append(self.license_validate_action)
-
-        self.license_deactivate_action = QAction(
-            self.tr("Deactivate License"), self.iface.mainWindow()
-        )
-        self.license_deactivate_action.triggered.connect(self.deactivate_license)
-        self.iface.addPluginToMenu(self.menu, self.license_deactivate_action)
-        self.actions.append(self.license_deactivate_action)
 
         # Connect to selection changes on map
         self.iface.mapCanvas().selectionChanged.connect(self.on_map_selection_changed)
@@ -260,16 +317,22 @@ class PastastoreViewer:
         self.plot_dock.activateWindow()
 
     def _update_license_ui(self):
-        status = self.license_manager.status_text()
-
-        if self.license_action:
-            self.license_action.setText(self.tr(f"License: {status}"))
+        if self.license_dialog:
+            self.license_dialog.refresh_info()
 
         if self.dock_widget:
             self.dock_widget.set_license_capabilities(
                 can_use_pro=self.license_manager.has_feature(FEATURE_PRO),
                 can_use_pronl=self.license_manager.has_feature(FEATURE_PRONL),
             )
+
+    def open_license_manager(self):
+        if not self.license_dialog:
+            self.license_dialog = LicenseManagerDialog(self, self.iface.mainWindow())
+        self.license_dialog.refresh_info()
+        self.license_dialog.show()
+        self.license_dialog.raise_()
+        self.license_dialog.activateWindow()
 
     def _require_feature(self, feature, feature_label):
         if self.license_manager.has_feature(feature):
@@ -278,9 +341,9 @@ class PastastoreViewer:
         QMessageBox.information(
             self.iface.mainWindow(),
             "Paid feature",
-            f"Deze actie vereist {feature_label}.\n\n"
-            f"Huidige licentie: {self.license_manager.status_text()}\n"
-            "Gebruik Plugin menu > Activate/Update License om te activeren.",
+            f"This action requires {feature_label}.\n\n"
+            f"Current license: {self.license_manager.status_text()}\n"
+            "Use Plugin menu > License Manager to activate.",
         )
         return False
 
@@ -289,7 +352,7 @@ class PastastoreViewer:
         key, ok = QInputDialog.getText(
             self.iface.mainWindow(),
             "Activate or update license",
-            f"Huidige status: {current_status}\n\nVoer je licentiesleutel in:",
+            f"Current status: {current_status}\n\nEnter your license key:",
         )
         if not ok:
             return
@@ -301,7 +364,7 @@ class PastastoreViewer:
         server_url, ok = QInputDialog.getText(
             self.iface.mainWindow(),
             "License server URL",
-            "Voer de licentieserver URL in (bijv. https://licenses.example.com):",
+            "Enter the license server URL (e.g. https://licenses.example.com):",
             text="https://pastastore-license-server.fly.dev",
         )
         if not ok:
@@ -320,6 +383,11 @@ class PastastoreViewer:
         self._update_license_ui()
 
         if silent:
+            if (not success) and message.lower().startswith("validation failed"):
+                self.iface.messageBar().pushWarning(
+                    "License",
+                    "Could not check license online. Paid features are disabled until a successful validation.",
+                )
             return
 
         if success:
@@ -331,7 +399,7 @@ class PastastoreViewer:
         reply = QMessageBox.question(
             self.iface.mainWindow(),
             "Deactivate license",
-            "Deze machine deactiveren en lokale licentie verwijderen?",
+            "Deactivate this machine and remove the local license?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -1318,15 +1386,14 @@ class PastastoreViewer:
     def open_model_editor(self, model_name):
         if not self.store:
             return
-        if not self._require_feature(FEATURE_PRO, "Pro"):
-            return
+        can_solve = self.license_manager.has_feature(FEATURE_PRO)
 
         try:
             # Get the model (create a copy/new instance to be safe)
             ml = self.store.get_models(model_name)
 
             while True:
-                dlg = ModelEditorDialog(ml, self.store, self.iface.mainWindow())
+                dlg = ModelEditorDialog(ml, self.store, self.iface.mainWindow(), can_solve=can_solve)
                 if not dlg.exec_():
                     # User closed the editor without saving
                     return
