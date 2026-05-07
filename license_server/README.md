@@ -1,126 +1,94 @@
 # Pastastore Viewer License Server (Strict Online)
 
-Mini FastAPI licentieserver voor Pastastore Viewer met:
-- Activeren per machine
-- Device-limiet per licentie
-- Strikt online validatie voor betaalde features
+Mini FastAPI license server for Pastastore Viewer with:
+- Per-machine activation
+- Device limit per license
+- Strict online validation for paid features
 
-## Belangrijk
+## Important
 
-Deze variant gebruikt geen RSA-ondertekende offline bundles.
-De plugin controleert Pro/ProNL altijd online via de server.
-Bij geen serververbinding vallen betaalde features terug naar free-modus.
-
-## Snel starten
-
-1. Installeer dependencies:
-
-```bash
-pip install -r requirements.txt
-```
-
-2. Start de server:
-
-```bash
-uvicorn app:app --host 0.0.0.0 --port 8787
-```
-
-Of via Fly.io (gebruikt poort 8787 conform `fly.toml`):
-
-```bash
-fly deploy
-```
-
-3. Zet admin token:
-
-```bash
-set LICENSE_ADMIN_TOKEN=vervang-mij
-```
-
-4. Maak een licentie aan:
-
-```bash
-curl -X POST http://localhost:8787/admin/licenses ^
-  -H "Content-Type: application/json" ^
-  -H "X-Admin-Token: vervang-mij" ^
-  -d "{\"customer_name\":\"Waterbedrijf X\",\"license_type\":\"proNL\",\"days_valid\":365,\"max_devices\":5}"
-```
-
-5. Activeer in plugin met:
-- license key uit stap 4
-- server URL (bijv. `https://pastastore-license-server.fly.dev`)
+This variant does not use RSA-signed offline bundles.
+The plugin always validates Pro/ProNL features online via the server.
+If the server is unreachable, paid features fall back to free mode.
 
 ## API
 
 ### `GET /health`
-Healthcheck.
+Health check.
 
 ### `POST /activate`
-Activeert licentie op machine en retourneert entitlement.
+Activates a license on a machine and returns the entitlement.
 
 ### `POST /validate`
-Valideert bestaande activatie online.
+Validates an existing activation online.
 
 ### `POST /deactivate`
-Deactiveert machine voor licentie.
+Deactivates a machine for a license.
 
 ### `POST /admin/licenses`
-Admin endpoint om licenties uit te geven.
+Admin endpoint to issue licenses.
+
+### `GET /admin/licenses`
+Admin endpoint to list all licenses with active device count.
 
 ## Data
 
-Databasebestand:
+Database file:
 - `license_server.db`
 
-Tabellen:
+Tables:
 - `licenses`
 - `activations`
 
-## Deploy op Fly.io
+## Deploy to Fly.io
 
-Fly.io heeft een **gratis tier** (3 kleine VMs) en ondersteunt persistent volumes — geschikt voor productiegebruik zonder maandelijkse vaste kosten bij laag gebruik.
+Fly.io has a **free tier** (3 small VMs) and supports persistent volumes — suitable for production use without fixed monthly costs at low usage.
 
-### Vereisten
+### Requirements
 
-Installeer de Fly CLI:
+Install the Fly CLI:
 
 ```bash
 # Windows (PowerShell)
 pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"
 ```
 
-Daarna inloggen:
+Then log in:
 
 ```bash
 fly auth login
 ```
 
-### Stappen
+### Steps
 
-1. **Ga naar de `license_server` map:**
+1. **Navigate to the `license_server` folder:**
 
 ```bash
 cd license_server
 ```
 
-2. **Initialiseer de Fly app** (eenmalig — sla `fly.toml` op in git):
+2. **Initialize the Fly app** (once — commit `fly.toml` to git):
 
 ```bash
 fly launch --name pastastore-license-server --region ams --no-deploy
 ```
 
-   Kies bij de prompt **geen** Postgres of Redis.
+   When prompted, choose **no** Postgres or Redis.
 
-3. **Maak een persistent volume aan** (eenmalig):
+3. **Create a persistent volume** (once):
 
 ```bash
 fly volumes create license_data --region ams --size 1
 ```
 
-4. **Stel het admin token in als secret:**
+   Note: Fly will show a warning about "2 or more volumes" for high availability.
+   This setup intentionally uses 1 machine + 1 volume so all writes go to the same SQLite database.
+   The warning is expected and not an error.
+
+4. **Set the admin token as a secret:**
 
 ```bash
-fly secrets set LICENSE_ADMIN_TOKEN=vervang-met-sterk-token
+fly secrets set LICENSE_ADMIN_TOKEN=replace-with-strong-token
 ```
 
 5. **Deploy:**
@@ -129,56 +97,64 @@ fly secrets set LICENSE_ADMIN_TOKEN=vervang-met-sterk-token
 fly deploy
 ```
 
-6. **Controleer de app URL:**
+6. **Check the app URL:**
 
 ```bash
 fly status
 ```
 
-   De URL is `https://pastastore-license-server.fly.dev` (of de naam die je hebt gekozen).
+   The URL will be `https://pastastore-license-server.fly.dev` (or the name you chose).
 
-### Updates deployen
+### Deploying updates
 
 ```bash
 fly deploy
 ```
 
-Het volume blijft behouden tussen deploys.
+The volume is preserved between deploys.
 
-## Eerste productie-checklist (Fly.io)
+## First production checklist (Fly.io)
 
-Vervang in voorbeelden:
-- `YOUR_FLY_APP` door jouw app-naam (bijv. `pastastore-license-server`)
-- `YOUR_ADMIN_TOKEN` door het token dat je met `fly secrets set` hebt ingesteld
+Replace in examples:
+- `YOUR_ADMIN_TOKEN` with the token set via `fly secrets set`
 
 1. Health check:
 
-```bash
-curl https://YOUR_FLY_APP.fly.dev/health
+```powershell
+Invoke-RestMethod https://pastastore-license-server.fly.dev/health
 ```
 
-2. Eerste licentie aanmaken:
+2. Create first license:
 
-```bash
-curl -X POST https://YOUR_FLY_APP.fly.dev/admin/licenses \
-  -H "Content-Type: application/json" \
-  -H "X-Admin-Token: YOUR_ADMIN_TOKEN" \
-  -d '{"customer_name":"Waterbedrijf X","license_type":"proNL","days_valid":365,"max_devices":5}'
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "https://pastastore-license-server.fly.dev/admin/licenses" `
+  -Headers @{ "Content-Type" = "application/json"; "X-Admin-Token" = "YOUR_ADMIN_TOKEN" } `
+  -Body '{"customer_name":"Example Customer","license_type":"proNL","days_valid":365,"max_devices":5}'
 ```
 
-3. Activeer licentie in plugin met URL `https://YOUR_FLY_APP.fly.dev`.
-4. Gebruik in plugin `Validate License Online`.
-5. Controleer feature locks (free/pro/proNL).
+3. List all licenses:
 
-### Logs bekijken
+```powershell
+Invoke-RestMethod `
+  -Uri "https://pastastore-license-server.fly.dev/admin/licenses" `
+  -Headers @{ "X-Admin-Token" = "YOUR_ADMIN_TOKEN" }
+```
+4. Activate license in plugin with URL `https://pastastore-license-server.fly.dev`.
+5. Use `Validate License Online` in the plugin.
+6. Verify feature locks (free/pro/proNL).
+
+### View logs
 
 ```bash
 fly logs
 ```
 
-### App stoppen/starten
+### Stop/start app
 
 ```bash
-fly scale count 0   # stoppen
-fly scale count 1   # starten
+fly scale count 0   # stop
+fly scale count 1   # start
 ```
+
+Tip for SQLite consistency: keep it at 1 machine (`fly scale count 1`) so all requests always hit the same database.

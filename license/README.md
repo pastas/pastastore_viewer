@@ -1,14 +1,14 @@
-Deze map wordt gebruikt voor lokale online-licentie-instellingen.
+This folder is used for local online license settings.
 
-Bestand dat de plugin automatisch beheert:
+File managed automatically by the plugin:
 
 license_online.json
 
-Inhoud (voorbeeld):
+Example contents:
 
 {
 	"license_key": "ABCD-1234-EF56-7890",
 	"server_url": "https://pastastore-license-server.fly.dev"
 }
 
-Voor strict online licensing is geen public_key.pem nodig.
+For strict online licensing, no public_key.pem is needed.

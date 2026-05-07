@@ -1,27 +1,32 @@
-app = "pastastore-license-server"
-primary_region = "ams"
+# fly.toml app configuration file generated for pastastore-license-server on 2026-05-07T11:47:45+02:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'pastastore-license-server'
+primary_region = 'ams'
 
 [build]
 
 [env]
-  LICENSE_DB_PATH = "/var/data/license_server.db"
+  LICENSE_DB_PATH = '/var/data/license_server.db'
 
-[mounts]
-  source = "license_data"
-  destination = "/var/data"
+[[mounts]]
+  source = 'license_data'
+  destination = '/var/data'
 
 [http_service]
-  internal_port = 8787
+  internal_port = 8000
   force_https = true
-  auto_stop_machines = false
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
 
   [http_service.concurrency]
-    type = "requests"
+    type = 'requests'
     hard_limit = 200
     soft_limit = 150
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  size = 'shared-cpu-1x'
+  memory = '256mb'

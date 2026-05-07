@@ -302,7 +302,7 @@ class PastastoreViewer:
             self.iface.mainWindow(),
             "License server URL",
             "Voer de licentieserver URL in (bijv. https://licenses.example.com):",
-            text="http://localhost:8787",
+            text="https://pastastore-license-server.fly.dev",
         )
         if not ok:
             return

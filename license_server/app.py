@@ -377,3 +377,28 @@ def create_license(
         "expires_at": record["expires_at"],
         "max_devices": record["max_devices"],
     }
+
+
+@app.get("/admin/licenses")
+def list_licenses(
+    x_admin_token: str | None = Header(default=None),
+) -> list[dict[str, Any]]:
+    ensure_admin_token(x_admin_token)
+
+    conn = db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT l.id, l.license_key, l.customer_name, l.license_type,
+                   l.expires_at, l.max_devices, l.is_active, l.created_at,
+                   COUNT(a.id) AS active_devices
+            FROM licenses l
+            LEFT JOIN activations a ON a.license_id = l.id
+            GROUP BY l.id
+            ORDER BY l.created_at DESC
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return [dict(row) for row in rows]
