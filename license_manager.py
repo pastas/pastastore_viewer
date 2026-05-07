@@ -1,3 +1,6 @@
+# Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
+# This software is proprietary. See LICENSE.md for details.
+
 from __future__ import annotations
 
 import getpass

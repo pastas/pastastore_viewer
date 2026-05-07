@@ -1,5 +1,14 @@
 # Pastastore Viewer QGIS Plugin
 
+**⚠️ PROPRIETARY SOFTWARE**
+
+This plugin is proprietary. Modification and redistribution are **strictly prohibited**. 
+See [LICENSE.md](LICENSE.md) for details.
+
+You may use free features without a license; Pro features require a valid paid license.
+
+---
+
 This plugin allows you to visualize time series and models stored in a `pastastore` zip file directly in QGIS.
 
 ## Features

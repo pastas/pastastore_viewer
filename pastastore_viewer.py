@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
+# This software is proprietary. See LICENSE.md for details.
 
 from qgis.PyQt.QtCore import (
     QCoreApplication,
@@ -17,6 +19,9 @@ from qgis.PyQt.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QAbstractItemView,
 )
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
@@ -86,23 +91,42 @@ class LicenseManagerDialog(QDialog):
         super().__init__(parent)
         self.plugin = plugin
         self.setWindowTitle(_tr("License Manager"))
-        self.resize(520, 260)
+        self.resize(580, 300)
 
         layout = QVBoxLayout(self)
 
-        self.status_label = QLabel()
-        self.customer_label = QLabel()
-        self.type_label = QLabel()
-        self.features_label = QLabel()
-        self.expires_label = QLabel()
-        self.machine_label = QLabel()
-
-        layout.addWidget(self.status_label)
-        layout.addWidget(self.customer_label)
-        layout.addWidget(self.type_label)
-        layout.addWidget(self.features_label)
-        layout.addWidget(self.expires_label)
-        layout.addWidget(self.machine_label)
+        # Create table for license properties
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels([_tr("Property"), _tr("Value")])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        
+        # Add rows for each property
+        properties = [
+            _tr("Status"),
+            _tr("Customer"),
+            _tr("License Type"),
+            _tr("Features"),
+            _tr("Expires"),
+            _tr("Machine ID"),
+        ]
+        self.table.setRowCount(len(properties))
+        self.property_labels = {}
+        
+        for i, prop in enumerate(properties):
+            prop_item = QTableWidgetItem(prop)
+            prop_item.setFlags(prop_item.flags() & ~Qt.ItemIsSelectable)
+            self.table.setItem(i, 0, prop_item)
+            
+            value_item = QTableWidgetItem("")
+            self.property_labels[prop] = value_item
+            self.table.setItem(i, 1, value_item)
+        
+        layout.addWidget(self.table)
 
         button_row = QHBoxLayout()
         self.activate_btn = QPushButton(_tr("Activate/Update"))
@@ -130,20 +154,12 @@ class LicenseManagerDialog(QDialog):
         features = ", ".join(state.features) if state.features else _tr("none")
         machine_id = self.plugin.license_manager.machine_id
 
-        self.status_label.setText(_tr("Status: {status}").format(status=status))
-        self.customer_label.setText(
-            _tr("Customer: {name}").format(name=state.customer_name or _tr("n/a"))
-        )
-        self.type_label.setText(
-            _tr("License type: {type}").format(type=state.license_type)
-        )
-        self.features_label.setText(
-            _tr("Features: {features}").format(features=features)
-        )
-        self.expires_label.setText(
-            _tr("Expires: {date}").format(date=state.expires_at or _tr("n/a"))
-        )
-        self.machine_label.setText(_tr("Machine ID: {id}").format(id=machine_id))
+        self.property_labels[_tr("Status")].setText(status)
+        self.property_labels[_tr("Customer")].setText(state.customer_name or _tr("n/a"))
+        self.property_labels[_tr("License Type")].setText(state.license_type)
+        self.property_labels[_tr("Features")].setText(features)
+        self.property_labels[_tr("Expires")].setText(state.expires_at or _tr("n/a"))
+        self.property_labels[_tr("Machine ID")].setText(machine_id)
 
     def _on_activate(self):
         self.plugin.manage_license()
@@ -531,6 +547,7 @@ class PastastoreViewer:
             self.dock_widget.x_col,
             self.dock_widget.y_col,
             self.iface.mainWindow(),
+            plugin=self,
             current_crs=self.dock_widget.crs_epsg,
             current_zoom=self.dock_widget.auto_zoom,
         )

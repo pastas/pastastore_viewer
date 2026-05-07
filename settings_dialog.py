@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
+# Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
+# This software is proprietary. See LICENSE.md for details.
 
-from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QDialogButtonBox
+from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QDialogButtonBox, QPushButton
 
 class PastastoreSettingsDialog(QDialog):
-    def __init__(self, current_x='x', current_y='y', parent=None, **kwargs):
+    def __init__(self, current_x='x', current_y='y', parent=None, plugin=None, **kwargs):
         super(PastastoreSettingsDialog, self).__init__(parent)
         self.setWindowTitle("Pastastore Settings")
+        self.plugin = plugin
         
         layout = QVBoxLayout()
         
@@ -26,6 +29,12 @@ class PastastoreSettingsDialog(QDialog):
         self.cb_zoom.setChecked(kwargs.get('current_zoom', False))
         layout.addWidget(self.cb_zoom)
         
+        if self.plugin:
+            layout.addWidget(QLabel(""))
+            license_btn = QPushButton("License Manager")
+            license_btn.clicked.connect(self.open_license_manager)
+            layout.addWidget(license_btn)
+        
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -40,3 +49,9 @@ class PastastoreSettingsDialog(QDialog):
             'crs': self.crs_edit.text(),
             'zoom': self.cb_zoom.isChecked()
         }
+    
+    def open_license_manager(self):
+        if self.plugin:
+            from .pastastore_viewer import LicenseManagerDialog
+            dlg = LicenseManagerDialog(self.plugin, parent=self)
+            dlg.exec_()

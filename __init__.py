@@ -4,6 +4,9 @@
  PastastoreViewer
                                  A QGIS plugin
  Visualize time series and models from a PastaStore zip file.
+ 
+ Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
+ This software is proprietary. See LICENSE.md for details.
  ***************************************************************************/
 """
 
