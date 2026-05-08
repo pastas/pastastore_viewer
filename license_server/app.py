@@ -272,6 +272,176 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/request-license", response_class=HTMLResponse)
+def request_license_ui() -> str:
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Request a License &mdash; Pastastore Viewer</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 900px; margin: 60px auto; padding: 0 20px; background: #f5f5f5; }
+  h1 { color: #1e3a5f; }
+  h2 { color: #374151; font-size: 18px; margin-top: 28px; }
+  p { color: #555; line-height: 1.6; }
+  .card { background: white; border-radius: 8px; padding: 28px; box-shadow: 0 1px 3px rgba(0,0,0,.12); margin-bottom: 20px; }
+  .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0; }
+  .pricing-card { border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; background: #f9fafb; }
+  .pricing-card h3 { margin: 0 0 8px; color: #1e3a5f; font-size: 16px; }
+  .pricing-card .price { font-size: 14px; font-weight: 600; color: #2563eb; margin: 8px 0; }
+  .pricing-card ul { margin: 8px 0; padding-left: 16px; font-size: 13px; color: #555; }
+  .pricing-card ul li { margin: 4px 0; }
+  label { display: block; font-size: 13px; font-weight: 600; color: #444; margin: 14px 0 4px; }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+  textarea { resize: vertical; min-height: 80px; }
+  button { margin-top: 20px; width: 100%; padding: 10px; background: #2563eb; color: white; border: none; border-radius: 4px; font-size: 15px; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  .error { margin-top: 10px; color: #b91c1c; font-size: 13px; display: none; }
+  .note { font-size: 12px; color: #888; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Request a Pastastore Viewer License</h1>
+  <p>Fill in the form below to request a Pro or ProNL license. You will be contacted within 1-2 business days.</p>
+  
+  <h2>Pricing</h2>
+  <div class="pricing-grid">
+    <div class="pricing-card">
+      <h3>Pro</h3>
+      <p style="font-size: 13px; margin: 0 0 12px; color: #666;">Model solving & editing</p>
+      <div class="price">€349/year (1 device)</div>
+      <div class="price">€699/year (3 devices)</div>
+      <div class="price">€1,499/year (10 devices)</div>
+      <ul>
+        <li>Create & solve models</li>
+        <li>Full editing capabilities</li>
+        <li>Online activation</li>
+      </ul>
+    </div>
+    <div class="pricing-card">
+      <h3>ProNL</h3>
+      <p style="font-size: 13px; margin: 0 0 12px; color: #666;">Pro + Dutch data imports</p>
+      <div class="price">€499/year (1 device)</div>
+      <div class="price">€999/year (3 devices)</div>
+      <div class="price">€1,999/year (10 devices)</div>
+      <ul>
+        <li>All Pro features</li>
+        <li>BRO data import</li>
+        <li>KNMI data import</li>
+      </ul>
+    </div>
+  </div>
+  
+  <p style="font-size: 13px; color: #666; margin-top: 16px;"><strong>Need more devices?</strong> Contact us for custom plans. <strong>Education/Non-profit?</strong> Discounts available upon request.</p>
+
+  <h2>Request Form</h2>
+    <form id="license-form" action="https://formspree.io/f/mpqbjbnv" method="POST">
+    <label for="name">Full name *</label>
+    <input type="text" id="name" name="name" required placeholder="Your name" />
+
+    <label for="org">Organisation *</label>
+    <input type="text" id="org" name="organisation" required placeholder="Company or institution" />
+
+    <label for="email">E-mail address *</label>
+    <input type="email" id="email" name="email" required placeholder="your@email.com" />
+
+    <label for="ltype">License type *</label>
+    <select id="ltype" name="license_type" required>
+      <option value="">-- Select --</option>
+      <option value="Pro">Pro &mdash; model solving &amp; editing</option>
+      <option value="ProNL">ProNL &mdash; Pro + BRO/KNMI data import (Netherlands)</option>
+    </select>
+
+    <label for="devices">Number of devices</label>
+    <input type="number" id="devices" name="devices" min="1" max="50" value="1" />
+
+    <label for="remarks">Remarks</label>
+    <textarea id="remarks" name="remarks" placeholder="Any additional information..."></textarea>
+
+    <input type="hidden" name="_subject" value="Pastastore Viewer License Request" />
+
+        <button id="submit-btn" type="submit">Submit request</button>
+        <div id="form-error" class="error"></div>
+  </form>
+  <p class="note">Your information is used solely for license administration.</p>
+</div>
+<script>
+const form = document.getElementById('license-form');
+const submitBtn = document.getElementById('submit-btn');
+const errorEl = document.getElementById('form-error');
+const emailInput = document.getElementById('email');
+
+form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
+
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Sending...';
+
+    try {
+        const formData = new FormData(form);
+        // Hint Formspree which address to use for reply/autoresponse.
+        formData.append('_replyto', emailInput.value.trim());
+        formData.append('_autoresponse', 'Thanks! We received your license request and will contact you within 1-2 business days.');
+
+        const res = await fetch(form.action, {
+            method: 'POST',
+            body: formData,
+            headers: { Accept: 'application/json' },
+        });
+
+        if (res.ok) {
+            window.location.href = '/request-license/thank-you';
+            return;
+        }
+
+        errorEl.textContent = 'Submission failed. Please try again or email r.calje@artesia-water.nl.';
+        errorEl.style.display = 'block';
+    } catch (err) {
+        errorEl.textContent = 'Network error. Please try again or email r.calje@artesia-water.nl.';
+        errorEl.style.display = 'block';
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
+    }
+});
+</script>
+</body>
+</html>
+"""
+
+
+@app.get("/request-license/thank-you", response_class=HTMLResponse)
+def request_license_thanks() -> str:
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Thank you &mdash; Pastastore Viewer</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; background: #f5f5f5; text-align: center; }
+  .card { background: white; border-radius: 8px; padding: 40px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  h1 { color: #166534; }
+  p { color: #555; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>&#10003; Request received!</h1>
+  <p>Thank you for your interest in Pastastore Viewer. Your request has been submitted successfully.</p>
+  <p>You will be contacted within 1-2 business days with payment information and your license key.</p>
+</div>
+</body>
+</html>
+"""
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_ui() -> str:
     return """

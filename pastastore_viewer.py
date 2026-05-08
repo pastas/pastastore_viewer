@@ -23,6 +23,8 @@ from qgis.PyQt.QtWidgets import (
     QTableWidgetItem,
     QAbstractItemView,
 )
+from qgis.PyQt.QtCore import QUrl
+from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
     QgsProject,
@@ -129,11 +131,13 @@ class LicenseManagerDialog(QDialog):
         layout.addWidget(self.table)
 
         button_row = QHBoxLayout()
+        self.acquire_btn = QPushButton(_tr("Acquire License"))
         self.activate_btn = QPushButton(_tr("Activate/Update"))
         self.validate_btn = QPushButton(_tr("Validate Online"))
         self.deactivate_btn = QPushButton(_tr("Deactivate"))
         self.close_btn = QPushButton(_tr("Close"))
 
+        button_row.addWidget(self.acquire_btn)
         button_row.addWidget(self.activate_btn)
         button_row.addWidget(self.validate_btn)
         button_row.addWidget(self.deactivate_btn)
@@ -141,6 +145,7 @@ class LicenseManagerDialog(QDialog):
         button_row.addWidget(self.close_btn)
         layout.addLayout(button_row)
 
+        self.acquire_btn.clicked.connect(self._on_acquire)
         self.activate_btn.clicked.connect(self._on_activate)
         self.validate_btn.clicked.connect(self._on_validate)
         self.deactivate_btn.clicked.connect(self._on_deactivate)
@@ -160,6 +165,9 @@ class LicenseManagerDialog(QDialog):
         self.property_labels[_tr("Features")].setText(features)
         self.property_labels[_tr("Expires")].setText(state.expires_at or _tr("n/a"))
         self.property_labels[_tr("Machine ID")].setText(machine_id)
+
+    def _on_acquire(self):
+        QDesktopServices.openUrl(QUrl("https://pastastore-license-server.fly.dev/request-license"))
 
     def _on_activate(self):
         self.plugin.manage_license()
