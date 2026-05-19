@@ -19,17 +19,12 @@ This plugin allows you to visualize time series and models stored in a `pastasto
 
 ## Installation
 
+
 ### Dependencies
-This plugin requires `pastastore`, `pastas`, and `pyqtgraph`. You have two options:
+This plugin requires `pastastore`, `pastas`, and `pyqtgraph` to be bundled in the plugin's `dependencies/` folder before use. The plugin does not auto-install dependencies at runtime.
 
-#### Option 1: Auto-install at runtime (recommended for end users)
-The plugin will automatically prompt to download and install missing dependencies on first load. 
-- **Requires:** QGIS Python with `pip` available (install `python3-pip` via OSGeo4W Setup if needed)
-- **Installation location:** Plugin's local `dependencies/` folder (isolated from other plugins)
-- **Offline:** Will fail with a clear message if no internet connection
-
-#### Option 2: Pre-bundle dependencies (recommended for offline deployment)
-Bundle dependencies inside the plugin so users do not need internet access:
+#### Bundling dependencies (required)
+Bundle dependencies inside the plugin so users do not need internet access and to ensure compatibility:
 
 1. From the OSGeo4W Shell (or using the Python interpreter bundled with QGIS):
    ```bash

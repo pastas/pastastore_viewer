@@ -7,12 +7,20 @@ Run this with the same Python that QGIS uses, for example:
 
 from __future__ import annotations
 
+
 import argparse
 import os
 import subprocess
 import sys
+import json
 
 
+
+# You can specify versions/branches/commits in the following ways:
+#   - "package==1.2.3" for a specific version
+#   - "package @ git+https://github.com/user/repo@branch"
+#   - "package @ git+https://github.com/user/repo@commit"
+#   - Or just "package" for latest
 DEFAULT_PACKAGES = [
     "pastastore",
     "pastas",
@@ -43,6 +51,7 @@ def run_pip_install(target_dir: str, packages: list[str], no_deps: bool) -> int:
     return subprocess.call(cmd)
 
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Bundle deps into dependencies/ for QGIS plugin."
@@ -56,7 +65,15 @@ def main() -> int:
         "--packages",
         nargs="+",
         default=DEFAULT_PACKAGES,
-        help="Packages to install into the target folder",
+        help="Packages to install into the target folder.\n"
+             "You can specify versions or git refs, e.g.:\n"
+             "  pastas==1.13.2 hydropandas @ git+https://github.com/ArtesiaWater/hydropandas@main",
+    )
+    parser.add_argument(
+        "--package-specs",
+        default=None,
+        help="Optional: Path to a JSON file with a list of package specs (overrides --packages).\n"
+             "Each item can be a string (as above) or a dict with 'name' and 'spec'.",
     )
     parser.add_argument(
         "--no-deps",
@@ -66,6 +83,18 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    # Load package specs from JSON if provided
+    packages = args.packages
+    if args.package_specs:
+        with open(args.package_specs, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        # Accept either a list of strings or a list of dicts with 'name' and 'spec'
+        if isinstance(loaded, list):
+            if all(isinstance(x, dict) and "spec" in x for x in loaded):
+                packages = [x["spec"] for x in loaded]
+            else:
+                packages = loaded
+
     if not ensure_pip_available():
         return 2
 
@@ -74,9 +103,9 @@ def main() -> int:
 
     print("Using Python:", sys.executable)
     print("Target folder:", target_dir)
-    print("Packages:", ", ".join(args.packages))
+    print("Packages:", ", ".join(packages))
 
-    exit_code = run_pip_install(target_dir, args.packages, args.no_deps)
+    exit_code = run_pip_install(target_dir, packages, args.no_deps)
     if exit_code == 0:
         print("Done. Commit the dependencies/ folder with the plugin.")
     return exit_code

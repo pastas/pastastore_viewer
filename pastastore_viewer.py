@@ -3,7 +3,6 @@
 # This software is proprietary. See LICENSE.md for details.
 
 from qgis.PyQt.QtCore import (
-    QCoreApplication,
     Qt,
     QVariant,
 )
@@ -17,7 +16,6 @@ from qgis.PyQt.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
