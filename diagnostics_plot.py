@@ -10,6 +10,7 @@ from pyqtgraph import DateAxisItem
 import numpy as np
 import pastas as ps
 from scipy.stats import norm, probplot
+from .qt_compat import PEN_DASH_LINE
 
 from pastastore._tqdm import tqdm as _tqdm_unused  # noqa: ensure deps available
 from pastas.stats.core import acf as get_acf
@@ -54,7 +55,7 @@ class DiagnosticsPlotDialog(QDialog):
 
     def _series_to_xy(self, series):
         """Return (x_epoch_seconds, y_values) arrays, NaN-stripped."""
-        x = series.index.view(np.int64) // 10**9
+        x = series.index.astype('datetime64[s]').astype(np.int64)
         y = series.values.astype(float)
         mask = np.isfinite(y)
         return x[mask], y[mask]
@@ -102,7 +103,7 @@ class DiagnosticsPlotDialog(QDialog):
         p_ts.getAxis("left").setLabel(series_label)
 
         x_ts, y_ts = self._series_to_xy(res)
-        p_ts.addLine(y=0, pen=pg.mkPen("k", style=Qt.DashLine))
+        p_ts.addLine(y=0, pen=pg.mkPen("k", style=PEN_DASH_LINE))
         # Plot as connected line (with gap detection handled via finite mask above)
         p_ts.plot(x_ts, y_ts, pen=pg.mkPen("#1f77b4", width=1))
 
@@ -211,7 +212,7 @@ class DiagnosticsPlotDialog(QDialog):
         # Normal PDF
         x_pdf = np.linspace(vals.min(), vals.max(), 200)
         y_pdf = norm.pdf(x_pdf, vals.mean(), vals.std())
-        plot.plot(x_pdf, y_pdf, pen=pg.mkPen("k", width=2, style=Qt.DashLine))
+        plot.plot(x_pdf, y_pdf, pen=pg.mkPen("k", width=2, style=PEN_DASH_LINE))
 
     def _plot_qq(self, plot, values):
         """Q-Q probability plot against normal distribution."""
@@ -250,4 +251,4 @@ class DiagnosticsPlotDialog(QDialog):
             pen=pg.mkPen(None),
         )
         plot.addItem(scatter)
-        plot.addLine(y=0, pen=pg.mkPen("k", style=Qt.DashLine))
+        plot.addLine(y=0, pen=pg.mkPen("k", style=PEN_DASH_LINE))

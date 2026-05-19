@@ -20,6 +20,15 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 import pandas as pd
 import numpy as np
+from .qt_compat import (
+    WINDOW_MAXIMIZE_BUTTON_HINT,
+    APPLICATION_MODAL,
+    ITEM_IS_USER_CHECKABLE,
+    ITEM_IS_ENABLED,
+    CHECKED,
+    SELECTION_BEHAVIOR_SELECT_ROWS,
+    HEADER_RESIZE_INTERACTIVE,
+)
 from .i18n_helper import tr as _i18n_tr
 
 
@@ -63,7 +72,7 @@ class KNMIImportDialog(QDialog):
         self._knmi_progress_expected = 0
 
         self.setWindowTitle(_tr("Import from KNMI"))
-        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
+        self.setWindowFlags(self.windowFlags() | WINDOW_MAXIMIZE_BUTTON_HINT)
         self.resize(1000, 700)
 
         if not HAS_HYDROPANDAS:
@@ -153,10 +162,10 @@ class KNMIImportDialog(QDialog):
         )
         self.table_stresses.verticalHeader().setVisible(False)
         self.table_stresses.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Interactive
+            HEADER_RESIZE_INTERACTIVE
         )
         self.table_stresses.horizontalHeader().setStretchLastSection(True)
-        self.table_stresses.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table_stresses.setSelectionBehavior(SELECTION_BEHAVIOR_SELECT_ROWS)
         self.table_stresses.itemSelectionChanged.connect(self._on_series_selected)
         content_row.addWidget(self.table_stresses, 1)
 
@@ -366,7 +375,7 @@ class KNMIImportDialog(QDialog):
 
         x = s.index
         if pd.api.types.is_datetime64_any_dtype(x):
-            x = x.view(np.int64) // 10**9
+            x = x.astype('datetime64[s]').astype(np.int64)
         y = s.values
 
         self.plot_widget.setTitle(f"Preview: {series_name}", color="k")
@@ -469,7 +478,7 @@ class KNMIImportDialog(QDialog):
             "Downloading KNMI stresses...", "Cancel", 0, 100, self
         )
         self._knmi_progress_dialog.setWindowTitle("KNMI Download")
-        self._knmi_progress_dialog.setWindowModality(Qt.ApplicationModal)
+        self._knmi_progress_dialog.setWindowModality(APPLICATION_MODAL)
         self._knmi_progress_dialog.setMinimumDuration(0)
         self._knmi_progress_dialog.setValue(0)
         self._knmi_progress_dialog.show()
@@ -592,8 +601,8 @@ class KNMIImportDialog(QDialog):
             self.table_stresses.insertRow(i)
 
             check_item = QTableWidgetItem()
-            check_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
-            check_item.setCheckState(Qt.Checked)
+            check_item.setFlags(ITEM_IS_USER_CHECKABLE | ITEM_IS_ENABLED)
+            check_item.setCheckState(CHECKED)
             self.table_stresses.setItem(i, 0, check_item)
 
             self.table_stresses.setItem(i, 1, QTableWidgetItem(name))
@@ -610,7 +619,7 @@ class KNMIImportDialog(QDialog):
             name_item = self.table_stresses.item(row, 1)
             if check_item is None or name_item is None:
                 continue
-            if check_item.checkState() != Qt.Checked:
+            if check_item.checkState() != CHECKED:
                 continue
 
             name = name_item.text()

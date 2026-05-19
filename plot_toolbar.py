@@ -1,6 +1,7 @@
 from qgis.PyQt.QtWidgets import QWidget, QHBoxLayout, QPushButton, QSizePolicy
 from qgis.PyQt.QtCore import Qt, QEvent
 from qgis.core import QgsApplication
+from .qt_compat import ALIGN_LEFT, SIZE_POLICY_FIXED
 
 
 class PlotNavigationWidget(QWidget):
@@ -25,7 +26,7 @@ class PlotNavigationWidget(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
-        layout.setAlignment(Qt.AlignLeft)
+        layout.setAlignment(ALIGN_LEFT)
 
         self.btn_zoom = QPushButton()
         self.btn_zoom.setIcon(QgsApplication.getThemeIcon("/mActionZoomIn.svg"))
@@ -41,9 +42,9 @@ class PlotNavigationWidget(QWidget):
 
         self.btn_zoom.setCheckable(True)
         self.btn_pan.setCheckable(True)
-        self.btn_zoom.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.btn_pan.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.btn_zoom_all.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.btn_zoom.setSizePolicy(SIZE_POLICY_FIXED, SIZE_POLICY_FIXED)
+        self.btn_pan.setSizePolicy(SIZE_POLICY_FIXED, SIZE_POLICY_FIXED)
+        self.btn_zoom_all.setSizePolicy(SIZE_POLICY_FIXED, SIZE_POLICY_FIXED)
         self.btn_zoom.setMaximumWidth(40)
         self.btn_pan.setMaximumWidth(40)
         self.btn_zoom_all.setMaximumWidth(40)
@@ -130,7 +131,11 @@ class PlotNavigationWidget(QWidget):
         widget.installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        if obj is getattr(self, "_anchor_widget", None) and event.type() == QEvent.Resize:
+        resize_type = getattr(QEvent, "Resize", None)
+        if resize_type is None:
+            resize_type = getattr(getattr(QEvent, "Type", None), "Resize", 14)
+
+        if obj is getattr(self, "_anchor_widget", None) and int(event.type()) == int(resize_type):
             self.move(self._anchor_offset[0], self._anchor_offset[1])
             self.raise_()
         return False

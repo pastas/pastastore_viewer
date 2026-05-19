@@ -25,6 +25,7 @@ from qgis.PyQt.QtCore import QUrl
 from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtGui import QIcon
 from qgis.core import (
+    Qgis,
     QgsProject,
     QgsVectorLayer,
     QgsField,
@@ -79,6 +80,18 @@ from .bro_import_dialog import BROImportDialog
 from .knmi_import_dialog import KNMIImportDialog
 from .bulk_models_dialog import BulkModelsDialog
 from .license_manager import LicenseManager, FEATURE_PRO, FEATURE_PRONL
+from .qt_compat import (
+    DOCK_AREA_RIGHT,
+    DOCK_AREA_BOTTOM,
+    ITEM_IS_SELECTABLE,
+    APPLICATION_MODAL,
+    DISPLAY_ROLE,
+    COLOR_BLUE,
+    COLOR_RED,
+    COLOR_BLACK,
+    SELECTION_BEHAVIOR_SELECT_ROWS,
+    EDIT_TRIGGERS_NONE,
+)
 from .i18n_helper import tr as _i18n_tr
 
 
@@ -101,8 +114,8 @@ class LicenseManagerDialog(QDialog):
         self.table.setHorizontalHeaderLabels([_tr("Property"), _tr("Value")])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(SELECTION_BEHAVIOR_SELECT_ROWS)
+        self.table.setEditTriggers(EDIT_TRIGGERS_NONE)
         self.table.setAlternatingRowColors(True)
         
         # Add rows for each property
@@ -119,7 +132,7 @@ class LicenseManagerDialog(QDialog):
         
         for i, prop in enumerate(properties):
             prop_item = QTableWidgetItem(prop)
-            prop_item.setFlags(prop_item.flags() & ~Qt.ItemIsSelectable)
+            prop_item.setFlags(prop_item.flags() & ~ITEM_IS_SELECTABLE)
             self.table.setItem(i, 0, prop_item)
             
             value_item = QTableWidgetItem("")
@@ -215,6 +228,36 @@ class PastastoreViewer:
     def tr(self, message):
         return _i18n_tr(message)
 
+    def _normalize_message_level(self, level):
+        if level is None:
+            return Qgis.Info
+        if isinstance(level, int):
+            return {
+                0: Qgis.Success,
+                1: Qgis.Warning,
+                2: Qgis.Critical,
+                3: Qgis.Info,
+            }.get(level, Qgis.Info)
+        return level
+
+    def _push_message(self, title, text, level=None, duration=5):
+        bar = self.iface.messageBar()
+        msg_level = self._normalize_message_level(level)
+
+        try:
+            return bar.pushMessage(title, text, msg_level, duration)
+        except TypeError:
+            try:
+                return bar.pushMessage(title, text, msg_level)
+            except TypeError:
+                if msg_level == Qgis.Critical:
+                    return bar.pushCritical(title, text)
+                if msg_level == Qgis.Warning:
+                    return bar.pushWarning(title, text)
+                if msg_level == Qgis.Success and hasattr(bar, "pushSuccess"):
+                    return bar.pushSuccess(title, text)
+                return bar.pushInfo(title, text)
+
     def initGui(self):
         icon_path = os.path.join(self.plugin_dir, "icon.svg")
 
@@ -276,7 +319,7 @@ class PastastoreViewer:
         main_dock_created = False
         if not self.dock_widget:
             self.dock_widget = PastastoreMainDock(self.iface.mainWindow())
-            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
+            self.iface.addDockWidget(DOCK_AREA_RIGHT, self.dock_widget)
             main_dock_created = True
 
             # Connect dock signals
@@ -320,7 +363,7 @@ class PastastoreViewer:
 
         if not self.plot_dock:
             self.plot_dock = PastastorePlotDock(self.iface.mainWindow())
-            self.iface.addDockWidget(Qt.BottomDockWidgetArea, self.plot_dock)
+            self.iface.addDockWidget(DOCK_AREA_BOTTOM, self.plot_dock)
 
             # Connect plot dock visibility signal if needed
             self.plot_dock.visibilityChanged.connect(
@@ -407,7 +450,7 @@ class PastastoreViewer:
 
         success, message = self.license_manager.activate(key, server_url)
         if success:
-            self.iface.messageBar().pushMessage("Success", message, level=0)
+            self._push_message("Success", message, level=0)
         else:
             QMessageBox.warning(self.iface.mainWindow(), "License", message)
 
@@ -426,7 +469,7 @@ class PastastoreViewer:
             return
 
         if success:
-            self.iface.messageBar().pushMessage("Success", message, level=0)
+            self._push_message("Success", message, level=0)
         else:
             QMessageBox.warning(self.iface.mainWindow(), "License", message)
 
@@ -443,7 +486,7 @@ class PastastoreViewer:
 
         success, message = self.license_manager.deactivate()
         if success:
-            self.iface.messageBar().pushMessage("Success", message, level=0)
+            self._push_message("Success", message, level=0)
         else:
             QMessageBox.warning(self.iface.mainWindow(), "License", message)
         self._update_license_ui()
@@ -668,20 +711,20 @@ class PastastoreViewer:
                 self.dock_widget.save_state_to_project()
 
             if notify:
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Success", "Created new empty pastastore.", level=0
                 )
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to create new pastastore: {str(e)}", level=2
             )
             print(traceback.format_exc())
 
     def save_pastastore(self):
         if not self.store:
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "No Store", "Load a pastastore before saving.", level=1
             )
             return
@@ -705,7 +748,7 @@ class PastastoreViewer:
                 "Saving pastastore...", None, 0, 0, self.iface.mainWindow()
             )
             busy.setWindowTitle("Please wait")
-            busy.setWindowModality(Qt.ApplicationModal)
+            busy.setWindowModality(APPLICATION_MODAL)
             busy.setMinimumDuration(0)
             busy.setCancelButton(None)
             busy.show()
@@ -724,11 +767,11 @@ class PastastoreViewer:
                 self.dock_widget.save_state_to_project()
 
             self.store_modified = False
-            self.iface.messageBar().pushMessage("Success", f"Saved {filename}", level=0)
+            self._push_message("Success", f"Saved {filename}", level=0)
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to save pastastore: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -747,7 +790,7 @@ class PastastoreViewer:
                 "Loading pastastore...", None, 0, 0, self.iface.mainWindow()
             )
             busy.setWindowTitle("Please wait")
-            busy.setWindowModality(Qt.ApplicationModal)
+            busy.setWindowModality(APPLICATION_MODAL)
             busy.setMinimumDuration(0)
             busy.setCancelButton(None)
             busy.show()
@@ -780,7 +823,7 @@ class PastastoreViewer:
                     # Set active layer based on current tab
                     self._set_active_layer_for_current_tab()
                     self._restore_selection_from_project()
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Success", f"Loaded {filename}", level=0
                 )
             except Exception as e:
@@ -806,7 +849,7 @@ class PastastoreViewer:
             "Merging pastastore...", None, 0, 0, self.iface.mainWindow()
         )
         busy.setWindowTitle("Please wait")
-        busy.setWindowModality(Qt.ApplicationModal)
+        busy.setWindowModality(APPLICATION_MODAL)
         busy.setMinimumDuration(0)
         busy.setCancelButton(None)
         busy.show()
@@ -835,7 +878,7 @@ class PastastoreViewer:
                 f"stresses: {counts['stresses']}, models: {counts['models']})"
             )
             self.store_modified = True
-            self.iface.messageBar().pushMessage("Success", msg, level=0)
+            self._push_message("Success", msg, level=0)
         except Exception:
             err_msg = traceback.format_exc()
             QMessageBox.critical(
@@ -998,7 +1041,7 @@ class PastastoreViewer:
                 if potential_x and potential_y:
                     x_col, y_col = potential_x[0], potential_y[0]
                 else:
-                    self.iface.messageBar().pushMessage(
+                    self._push_message(
                         "Missing Coordinates",
                         f"Could not find columns '{x_col}' and '{y_col}' in {layer_name}. "
                         "Please check your settings or the data.",
@@ -1043,11 +1086,11 @@ class PastastoreViewer:
             from qgis.PyQt.QtGui import QColor
 
             colors = {
-                "oseries": Qt.blue,
-                "stresses": Qt.red,
+                "oseries": COLOR_BLUE,
+                "stresses": COLOR_RED,
                 "models": QColor(0, 128, 0),
             }
-            color = colors.get(layer_name, Qt.black)
+            color = colors.get(layer_name, COLOR_BLACK)
             symbol.setColor(color)
 
             if layer_name == "oseries":
@@ -1072,7 +1115,7 @@ class PastastoreViewer:
             import traceback
 
             err = traceback.format_exc()
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Layer Error", f"Failed to add layer {layer_name}: {str(e)}", level=2
             )
             print(err)
@@ -1275,7 +1318,7 @@ class PastastoreViewer:
                 if self.plot_dock:
                     self.plot_dock.plot_models(data_list)
         except Exception as e:
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Plot error: {str(e)}", level=2
             )
 
@@ -1308,14 +1351,14 @@ class PastastoreViewer:
                     self.plot_dock.clear_plot()
 
                 self.store_modified = True
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Success", f"Deleted {len(names)} model(s)", level=0
                 )
 
             except Exception as e:
                 import traceback
 
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Error", f"Failed to delete models: {str(e)}", level=2
                 )
                 print(traceback.format_exc())
@@ -1356,14 +1399,14 @@ class PastastoreViewer:
                     self.plot_dock.clear_plot()
 
                 self.store_modified = True
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Success", f"Deleted {len(names)} oseries", level=0
                 )
 
             except Exception as e:
                 import traceback
 
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Error", f"Failed to delete oseries: {str(e)}", level=2
                 )
                 print(traceback.format_exc())
@@ -1407,14 +1450,14 @@ class PastastoreViewer:
                     self.plot_dock.clear_plot()
 
                 self.store_modified = True
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Success", f"Deleted {len(names)} stresses", level=0
                 )
 
             except Exception as e:
                 import traceback
 
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Error", f"Failed to delete stresses: {str(e)}", level=2
                 )
                 print(traceback.format_exc())
@@ -1483,7 +1526,7 @@ class PastastoreViewer:
                 self.store.add_model(new_model, overwrite=True)
                 self.store_modified = True
 
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Success", f"Saved model: {new_name}", level=0
                 )
 
@@ -1504,7 +1547,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to edit model: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -1548,7 +1591,7 @@ class PastastoreViewer:
                 self.store.add_model(new_model, overwrite=True)
                 self.store_modified = True
 
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Success", f"Created model: {new_name}", level=0
                 )
 
@@ -1563,7 +1606,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to create model: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -1609,7 +1652,7 @@ class PastastoreViewer:
 
         if not oseries_to_create:
             if skipped_models:
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Info",
                     "All selected models already exist. Nothing created.",
                     level=1,
@@ -1632,7 +1675,7 @@ class PastastoreViewer:
             self.store_modified = True
 
         if failed:
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Warning",
                 f"Failed to create models for: {', '.join(failed)}. See console for details.",
                 level=1,
@@ -1658,9 +1701,9 @@ class PastastoreViewer:
         msg = f"Created {len(created)} model(s)"
         if solve and created:
             msg += " and solved"
-        self.iface.messageBar().pushMessage("Success", msg, level=0)
+        self._push_message("Success", msg, level=0)
         if skipped_models:
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Info",
                 f"Skipped {len(skipped_models)} existing model(s).",
                 level=1,
@@ -1690,7 +1733,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to show results: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -1718,7 +1761,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to show diagnostics: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -1735,7 +1778,7 @@ class PastastoreViewer:
             f"Computing {stat}…", "Cancel", 0, n, self.iface.mainWindow()
         )
         progress.setWindowTitle("Please wait")
-        progress.setWindowModality(Qt.ApplicationModal)
+        progress.setWindowModality(APPLICATION_MODAL)
         progress.setMinimumDuration(0)
         progress.setValue(0)
         QApplication.processEvents()
@@ -1793,7 +1836,7 @@ class PastastoreViewer:
                 for m in self.store.model_names
             }
         except Exception as e:
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Map Plot Error", f"Could not read model locations: {e}", level=2
             )
             return
@@ -1805,7 +1848,7 @@ class PastastoreViewer:
             f"Computing {label}…", "Cancel", 0, n, self.iface.mainWindow()
         )
         progress.setWindowTitle("Please wait")
-        progress.setWindowModality(Qt.ApplicationModal)
+        progress.setWindowModality(APPLICATION_MODAL)
         progress.setMinimumDuration(0)
         progress.setValue(0)
         QApplication.processEvents()
@@ -1821,7 +1864,7 @@ class PastastoreViewer:
                     val_item = table.item(row_i, col_idx)
                     if name_item and val_item:
                         try:
-                            cached_values[name_item.text()] = float(val_item.data(Qt.DisplayRole))
+                            cached_values[name_item.text()] = float(val_item.data(DISPLAY_ROLE))
                         except (TypeError, ValueError):
                             pass
 
@@ -1861,7 +1904,7 @@ class PastastoreViewer:
 
         valid_records = [(n, x, y, v) for n, x, y, v in records if not np.isnan(v)]
         if not valid_records:
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Map Plot", f"No valid values to plot for '{label}'.", level=1
             )
             return
@@ -1966,7 +2009,11 @@ class PastastoreViewer:
         label_settings.enabled = True
         label_settings.fieldName = 'format_number("value", 3)'
         label_settings.isExpression = True
-        label_settings.placement = QgsPalLayerSettings.OverPoint
+        # QGIS 4: placement expects Qgis.LabelPlacement; QGIS 3: QgsPalLayerSettings.OverPoint
+        _over_point = getattr(
+            getattr(Qgis, "LabelPlacement", None), "OverPoint", None
+        ) or QgsPalLayerSettings.OverPoint
+        label_settings.placement = _over_point
         tf = QgsTextFormat()
         label_settings.setFormat(tf)
         # Data-defined quadrant and XY offset so labels sit outside their circle
@@ -2011,7 +2058,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to show matplotlib results: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2029,7 +2076,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to show matplotlib diagnostics: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2067,7 +2114,7 @@ class PastastoreViewer:
                 self.dock_widget.select_items_in_list("models", matching_models)
                 self.dock_widget.tabs.setCurrentIndex(2)  # Switch to models tab
             else:
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Info",
                     f"No models found for selected oseries: {oseries_names}.",
                     level=0,
@@ -2076,7 +2123,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to select models: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2161,7 +2208,7 @@ class PastastoreViewer:
                 self.dock_widget.select_items_in_list("models", matching_models)
                 self.dock_widget.tabs.setCurrentIndex(2)
             else:
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Info",
                     f"No models found for selected stresses: {stress_names}.",
                     level=0,
@@ -2170,7 +2217,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to select models: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2204,7 +2251,7 @@ class PastastoreViewer:
                 self.dock_widget.select_items_in_list("oseries", matching_oseries)
                 self.dock_widget.tabs.setCurrentIndex(0)
             else:
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Info",
                     f"No oseries found for selected models: {model_names}.",
                     level=0,
@@ -2213,7 +2260,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to select oseries: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2273,7 +2320,7 @@ class PastastoreViewer:
                 self.dock_widget.select_items_in_list("stresses", matching_stresses)
                 self.dock_widget.tabs.setCurrentIndex(1)
             else:
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Info",
                     f"No stresses found for selected models: {model_names}.",
                     level=0,
@@ -2282,7 +2329,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to select stresses: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2314,7 +2361,7 @@ class PastastoreViewer:
                 )
                 self.store_modified = True
 
-                self.iface.messageBar().pushMessage(
+                self._push_message(
                     "Success", f"Updated oseries: {oseries_name}", level=0
                 )
 
@@ -2328,7 +2375,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to edit oseries: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2336,7 +2383,7 @@ class PastastoreViewer:
     def open_bro_import_dialog(self):
         """Open the BRO import dialog."""
         if not self.store:
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Warning", "Please load a pastastore first.", level=1
             )
             return
@@ -2365,7 +2412,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to open BRO import dialog: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2373,7 +2420,7 @@ class PastastoreViewer:
     def open_knmi_import_dialog(self):
         """Open the KNMI import dialog."""
         if not self.store:
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Warning", "Please load a pastastore first.", level=1
             )
             return
@@ -2411,7 +2458,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to open KNMI import dialog: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2453,14 +2500,14 @@ class PastastoreViewer:
             # Refresh map layers to show the new oseries
             self.load_layers_from_store()
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Success", f"Added {added_count} series from BRO.", level=0
             )
 
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to add BRO series to store: {str(e)}", level=2
             )
             print(traceback.format_exc())
@@ -2488,14 +2535,15 @@ class PastastoreViewer:
                     self.dock_widget.tabs.setCurrentIndex(1)
                     self._set_active_layer_for_current_tab()
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Success", f"Added {added_count} KNMI stress series.", level=0
             )
 
         except Exception as e:
             import traceback
 
-            self.iface.messageBar().pushMessage(
+            self._push_message(
                 "Error", f"Failed to add KNMI stresses to store: {str(e)}", level=2
             )
             print(traceback.format_exc())
+

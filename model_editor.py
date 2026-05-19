@@ -28,6 +28,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import Qt, QDate
 from qgis.core import QgsApplication
 from .plot_toolbar import PlotNavigationWidget
+from .qt_compat import ITEM_IS_EDITABLE, APPLICATION_MODAL, HEADER_RESIZE_STRETCH
 from .i18n_helper import tr as _i18n_tr
 import pandas as pd
 import numpy as np
@@ -187,7 +188,7 @@ class ModelEditorDialog(QDialog):
         self.table_params.setHorizontalHeaderLabels(
             ["initial", "optimal", "pmin", "pmax", "vary", "stderr"]
         )
-        self.table_params.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table_params.horizontalHeader().setSectionResizeMode(HEADER_RESIZE_STRETCH)
         self.vbox_params.addWidget(self.table_params)
         self.tabs.addTab(self.tab_parameters, _tr("Parameters"))
 
@@ -355,7 +356,7 @@ class ModelEditorDialog(QDialog):
                     # Editable columns: initial, pmin, pmax, vary
                     # Optimal and stderr are results (read-only mostly, but allow copy)
                     if col in ["optimal", "stderr"]:
-                        item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+                        item.setFlags(item.flags() ^ ITEM_IS_EDITABLE)
 
                     self.table_params.setItem(i, j, item)
 
@@ -373,7 +374,7 @@ class ModelEditorDialog(QDialog):
             obs = model.observations()
             if obs is not None and not obs.empty:
                 # Standard timestamp plotting (epoch)
-                x = obs.index.view(np.int64) // 10**9
+                x = obs.index.astype('datetime64[s]').astype(np.int64)
                 y = obs.values
                 self.plot_widget.plot(
                     x,
@@ -389,7 +390,7 @@ class ModelEditorDialog(QDialog):
         try:
             sim = model.simulate()
             if sim is not None and not sim.empty:
-                x = sim.index.view(np.int64) // 10**9
+                x = sim.index.astype('datetime64[s]').astype(np.int64)
                 y = sim.values
                 self.plot_widget.plot(
                     x, y, pen=pg.mkPen("#1f77b4", width=2), name="Simulation"
@@ -711,7 +712,7 @@ class ModelEditorDialog(QDialog):
         if show_progress:
             busy = QProgressDialog("Solving model...", None, 0, 0, self)
             busy.setWindowTitle("Please wait")
-            busy.setWindowModality(Qt.ApplicationModal)
+            busy.setWindowModality(APPLICATION_MODAL)
             busy.setMinimumDuration(0)
             busy.setCancelButton(None)
             busy.show()

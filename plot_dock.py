@@ -8,6 +8,7 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import Qt
 from .plot_toolbar import PlotNavigationWidget
+from .qt_compat import DOCK_AREA_BOTTOM, DOCK_AREA_TOP
 
 try:
     import pyqtgraph as pg
@@ -25,7 +26,7 @@ class PastastorePlotDock(QDockWidget):
     def __init__(self, parent=None):
         super(PastastorePlotDock, self).__init__("Pastastore Plot", parent)
         self.setObjectName("PastastorePlotDock")
-        self.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
+        self.setAllowedAreas(DOCK_AREA_BOTTOM | DOCK_AREA_TOP)
 
         # Container widget
         self.container = QWidget()
@@ -71,7 +72,7 @@ class PastastorePlotDock(QDockWidget):
 
         x = series.index
         if pd.api.types.is_datetime64_any_dtype(x):
-            x = x.view(np.int64) // 10**9
+            x = x.astype('datetime64[s]').astype(np.int64)
 
         y = series.values
         if len(y.shape) > 1 and y.shape[1] == 1:

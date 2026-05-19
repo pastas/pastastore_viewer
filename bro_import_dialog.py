@@ -36,6 +36,16 @@ from qgis.core import (
 from qgis.gui import QgsMapTool, QgsRubberBand
 import pandas as pd
 import numpy as np
+from .qt_compat import (
+    MOUSE_BUTTON_RIGHT,
+    MOUSE_BUTTON_LEFT,
+    WINDOW_MAXIMIZE_BUTTON_HINT,
+    ORIENTATION_HORIZONTAL,
+    WINDOW_MODAL,
+    SELECTION_BEHAVIOR_SELECT_ROWS,
+    SELECTION_MODE_EXTENDED,
+    HEADER_RESIZE_INTERACTIVE,
+)
 from .i18n_helper import tr as _i18n_tr
 
 
@@ -76,13 +86,13 @@ class BROMapExtentTool(QgsMapTool):
         self.rubber_band.hide()
 
     def canvasPressEvent(self, event):
-        if event.button() == Qt.RightButton:
+        if event.button() == MOUSE_BUTTON_RIGHT:
             self._clear()
             if self.on_canceled:
                 self.on_canceled()
             return
 
-        if event.button() != Qt.LeftButton:
+        if event.button() != MOUSE_BUTTON_LEFT:
             return
 
         self.start_point = self.toMapCoordinates(event.pos())
@@ -97,7 +107,7 @@ class BROMapExtentTool(QgsMapTool):
         self._update_rubber_band()
 
     def canvasReleaseEvent(self, event):
-        if event.button() != Qt.LeftButton or self.start_point is None:
+        if event.button() != MOUSE_BUTTON_LEFT or self.start_point is None:
             return
 
         self.end_point = self.toMapCoordinates(event.pos())
@@ -165,7 +175,7 @@ class BROImportDialog(QDialog):
         self._restore_dialog_after_map_select = False
 
         self.setWindowTitle(_tr("Import from BRO"))
-        self.setWindowFlags(self.windowFlags() | Qt.WindowMaximizeButtonHint)
+        self.setWindowFlags(self.windowFlags() | WINDOW_MAXIMIZE_BUTTON_HINT)
         self.resize(1200, 800)
 
         if not HAS_BRODATA:
@@ -245,7 +255,7 @@ class BROImportDialog(QDialog):
         layout.addWidget(input_group)
 
         # Main splitter for series list and plot
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(ORIENTATION_HORIZONTAL)
 
         # Left side: Series list with metadata selection
         left_widget = QGroupBox(_tr("Downloaded Series"))
@@ -259,10 +269,10 @@ class BROImportDialog(QDialog):
         )
         self.table_series.verticalHeader().setVisible(False)
         self.table_series.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Interactive
+            HEADER_RESIZE_INTERACTIVE
         )
         self.table_series.horizontalHeader().setStretchLastSection(True)
-        self.table_series.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table_series.setSelectionBehavior(SELECTION_BEHAVIOR_SELECT_ROWS)
         self.table_series.itemSelectionChanged.connect(self._on_series_selected)
         left_layout.addWidget(self.table_series)
 
@@ -283,7 +293,7 @@ class BROImportDialog(QDialog):
         # Status selector
         metadata_layout.addWidget(QLabel(_tr("Status:")))
         self.list_status = QListWidget()
-        self.list_status.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.list_status.setSelectionMode(SELECTION_MODE_EXTENDED)
         self.list_status.setMaximumHeight(80)
         self.list_status.itemSelectionChanged.connect(self._on_metadata_changed)
         metadata_layout.addWidget(self.list_status)
@@ -291,7 +301,7 @@ class BROImportDialog(QDialog):
         # Qualifier selector
         metadata_layout.addWidget(QLabel(_tr("Qualifier:")))
         self.list_qualifier = QListWidget()
-        self.list_qualifier.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.list_qualifier.setSelectionMode(SELECTION_MODE_EXTENDED)
         self.list_qualifier.setMaximumHeight(80)
         self.list_qualifier.itemSelectionChanged.connect(self._on_metadata_changed)
         metadata_layout.addWidget(self.list_qualifier)
@@ -299,7 +309,7 @@ class BROImportDialog(QDialog):
         # Observation type selector
         metadata_layout.addWidget(QLabel(_tr("Observation Type:")))
         self.list_obs_type = QListWidget()
-        self.list_obs_type.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.list_obs_type.setSelectionMode(SELECTION_MODE_EXTENDED)
         self.list_obs_type.setMaximumHeight(60)
         self.list_obs_type.itemSelectionChanged.connect(self._on_metadata_changed)
         metadata_layout.addWidget(self.list_obs_type)
@@ -400,7 +410,7 @@ class BROImportDialog(QDialog):
             "Downloading data from BRO...", "Cancel", 0, 100, self
         )
         self.progress_dialog.setWindowTitle("BRO Download")
-        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setWindowModality(WINDOW_MODAL)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setValue(0)
         self.progress_dialog.show()
@@ -951,7 +961,7 @@ class BROImportDialog(QDialog):
             "Downloading data from selected map extent...", "Cancel", 0, 100, self
         )
         self.progress_dialog.setWindowTitle("BRO Extent Download")
-        self.progress_dialog.setWindowModality(Qt.WindowModal)
+        self.progress_dialog.setWindowModality(WINDOW_MODAL)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setValue(5)
         self.progress_dialog.show()
@@ -1242,7 +1252,7 @@ class BROImportDialog(QDialog):
 
             def _get_xy(dataframe):
                 if isinstance(dataframe.index, pd.DatetimeIndex):
-                    x_values = dataframe.index.astype(np.int64) / 10**9
+                    x_values = dataframe.index.astype('datetime64[s]').astype(np.int64)
                 else:
                     x_values = np.arange(len(dataframe))
 

@@ -23,10 +23,10 @@ import json
 #   - Or just "package" for latest
 DEFAULT_PACKAGES = [
     "pastastore",
-    "pastas",
+    "pastas @ git+https://github.com/pastas/pastas@dev",
     "pyqtgraph",
-    "brodata",
-    "hydropandas",
+    "brodata @ git+https://github.com/ArtesiaWater/brodata@dev",
+    "hydropandas @ git+https://github.com/ArtesiaWater/hydropandas@96c55a6db0cbb22e643917aeadfc8e079a310328",
 ]
 
 
