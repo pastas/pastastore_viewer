@@ -20,13 +20,12 @@ from qgis.PyQt.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
     QDateEdit,
     QProgressDialog,
     QApplication,
 )
 from qgis.PyQt.QtCore import Qt, QDate
-from qgis.core import QgsApplication
+from qgis.core import QgsApplication, QgsMessageLog, Qgis
 from .plot_toolbar import PlotNavigationWidget
 from .qt_compat import ITEM_IS_EDITABLE, APPLICATION_MODAL, HEADER_RESIZE_STRETCH
 from .i18n_helper import tr as _i18n_tr
@@ -42,10 +41,40 @@ def _tr(message):
     return _i18n_tr(message)
 
 
+def _apply_scipy_callback_patch():
+    """Patch pastas least_squares calls for scipy versions without callback support."""
+    try:
+        import inspect
+        from scipy.optimize import least_squares as _orig_ls
+
+        if "callback" in inspect.signature(_orig_ls).parameters:
+            return
+
+        import pastas.solver.least_squares as _ls_mod
+
+        if getattr(_ls_mod.least_squares, "_callback_patched", False):
+            return
+
+        def _ls_no_cb(*args, **kwargs):
+            kwargs.pop("callback", None)
+            return _orig_ls(*args, **kwargs)
+
+        _ls_no_cb._callback_patched = True
+        _ls_mod.least_squares = _ls_no_cb
+    except Exception:
+        pass
+
+
 class ModelEditorDialog(QDialog):
     """Dialog to edit a Pastas model with advanced stressmodel configuration."""
 
-    def __init__(self, model: ps.Model, store: pst.PastaStore, parent=None, can_solve: bool = True):
+    def __init__(
+        self,
+        model: ps.Model,
+        store: pst.PastaStore,
+        parent=None,
+        can_solve: bool = True,
+    ):
         super(ModelEditorDialog, self).__init__(parent)
         self.setWindowTitle(_tr("View Model"))
         self.resize(800, 800)
@@ -104,11 +133,11 @@ class ModelEditorDialog(QDialog):
         # Set dates from model
         tmin = model.settings.get("tmin")
         tmax = model.settings.get("tmax")
-        # Find absolute data bounds for calendar range
-        obs = model.observations()
-        if not obs.empty:
-            abs_min = QDate.fromString(str(obs.index.min().date()), "yyyy-MM-dd")
-            abs_max = QDate.fromString(str(obs.index.max().date()), "yyyy-MM-dd")
+        # Find absolute data bounds for calendar range (use oseries directly, not filtered observations)
+        oseries = model.oseries.series_original
+        if not oseries.empty:
+            abs_min = QDate.fromString(str(oseries.index.min().date()), "yyyy-MM-dd")
+            abs_max = QDate.fromString(str(oseries.index.max().date()), "yyyy-MM-dd")
             self.de_tmin.setMinimumDate(abs_min)
             self.de_tmin.setMaximumDate(abs_max)
             self.de_tmax.setMinimumDate(abs_min)
@@ -374,7 +403,7 @@ class ModelEditorDialog(QDialog):
             obs = model.observations()
             if obs is not None and not obs.empty:
                 # Standard timestamp plotting (epoch)
-                x = obs.index.astype('datetime64[s]').astype(np.int64)
+                x = obs.index.astype("datetime64[s]").astype(np.int64)
                 y = obs.values
                 self.plot_widget.plot(
                     x,
@@ -390,7 +419,7 @@ class ModelEditorDialog(QDialog):
         try:
             sim = model.simulate()
             if sim is not None and not sim.empty:
-                x = sim.index.astype('datetime64[s]').astype(np.int64)
+                x = sim.index.astype("datetime64[s]").astype(np.int64)
                 y = sim.values
                 self.plot_widget.plot(
                     x, y, pen=pg.mkPen("#1f77b4", width=2), name="Simulation"
@@ -429,14 +458,10 @@ class ModelEditorDialog(QDialog):
                 entry["rfunc"] = "None"
 
             # Inputs
-            if hasattr(sm, "stress"):
-                if isinstance(sm.stress, list):
-                    for s in sm.stress:
-                        if hasattr(s, "name"):
-                            entry["inputs"].append(s.name)
-                else:
-                    if hasattr(sm.stress, "name"):
-                        entry["inputs"].append(sm.stress.name)
+            if hasattr(sm, "stresses"):
+                for s in sm.stresses:
+                    if hasattr(s, "name"):
+                        entry["inputs"].append(s.name)
 
             # RechargeModel specific
             if cls_name == "RechargeModel":
@@ -670,7 +695,7 @@ class ModelEditorDialog(QDialog):
 
     def add_stressmodel(self):
         # Default new model
-        name = f"stress_{len(self.stressmodel_settings)+1}"
+        name = f"stress_{len(self.stressmodel_settings) + 1}"
 
         # Get default dates from model tmin/tmax
         tmin = self.original_model.settings.get("tmin")
@@ -814,8 +839,17 @@ class ModelEditorDialog(QDialog):
                         sm = ps.LinearTrend(start=start, end=end, name=name)
                         model.add_stressmodel(sm)
 
-                except Exception as e:
-                    print(f"Error adding {s['name']}: {e}")
+                except Exception:
+                    import traceback
+
+                    stress_err = traceback.format_exc()
+                    QgsMessageLog.logMessage(
+                        stress_err,
+                        "Pastastore Viewer",
+                        level=Qgis.Critical,
+                    )
+                    print(stress_err)
+                    raise
 
             # Apply Parameters
             # Capture from table
@@ -863,7 +897,15 @@ class ModelEditorDialog(QDialog):
                     model.del_transform()
 
             if solve:
-                model.solve(freq=freq, tmin=tmin, tmax=tmax, report=False)
+                _apply_scipy_callback_patch()
+                model.solve(
+                    freq=freq,
+                    tmin=tmin,
+                    tmax=tmax,
+                    x_scale="jac",
+                    tr_options={},
+                    report=False,
+                )
                 self.update_stats_label(model)
                 self.update_plot(model)
                 self.update_parameters_table(model)
@@ -872,8 +914,23 @@ class ModelEditorDialog(QDialog):
             return model
 
         except Exception as e:
+            import traceback
+
+            err_msg = traceback.format_exc()
             title = "Solve Error" if solve else "Model Update Error"
-            QMessageBox.critical(self, title, str(e))
+            QgsMessageLog.logMessage(
+                err_msg,
+                "Pastastore Viewer",
+                level=Qgis.Critical,
+            )
+            print(err_msg)
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle(title)
+            msg.setText(str(e))
+            msg.setInformativeText("See details below for the full traceback.")
+            msg.setDetailedText(err_msg)
+            msg.exec_()
             self.lbl_stats.setText(f"Error: {str(e)}")
             return None
         finally:

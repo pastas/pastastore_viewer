@@ -1,5 +1,5 @@
 from qgis.PyQt.QtWidgets import QWidget, QHBoxLayout, QPushButton, QSizePolicy
-from qgis.PyQt.QtCore import Qt, QEvent
+from qgis.PyQt.QtCore import QEvent
 from qgis.core import QgsApplication
 from .qt_compat import ALIGN_LEFT, SIZE_POLICY_FIXED
 

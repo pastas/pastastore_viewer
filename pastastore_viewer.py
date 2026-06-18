@@ -2,10 +2,7 @@
 # Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
 # This software is proprietary. See LICENSE.md for details.
 
-from qgis.PyQt.QtCore import (
-    Qt,
-    QVariant,
-)
+from qgis.PyQt.QtCore import QVariant
 from qgis.PyQt.QtWidgets import (
     QAction,
     QFileDialog,
@@ -19,7 +16,6 @@ from qgis.PyQt.QtWidgets import (
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
-    QAbstractItemView,
 )
 from qgis.PyQt.QtCore import QUrl
 from qgis.PyQt.QtGui import QDesktopServices
@@ -37,7 +33,6 @@ from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsGraduatedSymbolRenderer,
     QgsStyle,
-    QgsMarkerSymbol,
     QgsPalLayerSettings,
     QgsVectorLayerSimpleLabeling,
     QgsTextFormat,
@@ -72,7 +67,7 @@ except ImportError:
 from .main_dock import PastastoreMainDock
 from .plot_dock import PastastorePlotDock
 from .settings_dialog import PastastoreSettingsDialog
-from .model_editor import ModelEditorDialog
+from .model_editor import ModelEditorDialog, _apply_scipy_callback_patch
 from .results_plot import ResultsPlotDialog
 from .diagnostics_plot import DiagnosticsPlotDialog
 from .oseries_editor import OseriesEditorDialog
@@ -117,7 +112,7 @@ class LicenseManagerDialog(QDialog):
         self.table.setSelectionBehavior(SELECTION_BEHAVIOR_SELECT_ROWS)
         self.table.setEditTriggers(EDIT_TRIGGERS_NONE)
         self.table.setAlternatingRowColors(True)
-        
+
         # Add rows for each property
         properties = [
             _tr("Status"),
@@ -129,16 +124,16 @@ class LicenseManagerDialog(QDialog):
         ]
         self.table.setRowCount(len(properties))
         self.property_labels = {}
-        
+
         for i, prop in enumerate(properties):
             prop_item = QTableWidgetItem(prop)
             prop_item.setFlags(prop_item.flags() & ~ITEM_IS_SELECTABLE)
             self.table.setItem(i, 0, prop_item)
-            
+
             value_item = QTableWidgetItem("")
             self.property_labels[prop] = value_item
             self.table.setItem(i, 1, value_item)
-        
+
         layout.addWidget(self.table)
 
         button_row = QHBoxLayout()
@@ -178,7 +173,9 @@ class LicenseManagerDialog(QDialog):
         self.property_labels[_tr("Machine ID")].setText(machine_id)
 
     def _on_acquire(self):
-        QDesktopServices.openUrl(QUrl("https://pastastore-license-server.fly.dev/request-license"))
+        QDesktopServices.openUrl(
+            QUrl("https://pastastore-license-server.fly.dev/request-license")
+        )
 
     def _on_activate(self):
         self.plugin.manage_license()
@@ -274,7 +271,9 @@ class PastastoreViewer:
         self.iface.addToolBarIcon(self.action)
         self.actions.append(self.action)
 
-        self.license_action = QAction(self.tr("License Manager..."), self.iface.mainWindow())
+        self.license_action = QAction(
+            self.tr("License Manager..."), self.iface.mainWindow()
+        )
         self.license_action.triggered.connect(self.open_license_manager)
         self.iface.addPluginToMenu(self.menu, self.license_action)
         self.actions.append(self.license_action)
@@ -336,8 +335,12 @@ class PastastoreViewer:
             self.dock_widget.results_requested.connect(self.open_results_plot)
             self.dock_widget.diagnostics_requested.connect(self.open_diagnostics_plot)
             self.dock_widget.mpl_results_requested.connect(self.open_mpl_results_plot)
-            self.dock_widget.mpl_diagnostics_requested.connect(self.open_mpl_diagnostics_plot)
-            self.dock_widget.add_model_column_requested.connect(self.compute_model_stat_column)
+            self.dock_widget.mpl_diagnostics_requested.connect(
+                self.open_mpl_diagnostics_plot
+            )
+            self.dock_widget.add_model_column_requested.connect(
+                self.compute_model_stat_column
+            )
             self.dock_widget.map_plot_requested.connect(self.plot_model_values_on_map)
             self.dock_widget.select_models_for_oseries_requested.connect(
                 self.select_models_for_oseries
@@ -679,9 +682,15 @@ class PastastoreViewer:
             return False
 
         try:
-            has_oseries = hasattr(self.store, "oseries") and len(self.store.oseries.index) > 0
-            has_stresses = hasattr(self.store, "stresses") and len(self.store.stresses.index) > 0
-            has_models = hasattr(self.store, "model_names") and len(self.store.model_names) > 0
+            has_oseries = (
+                hasattr(self.store, "oseries") and len(self.store.oseries.index) > 0
+            )
+            has_stresses = (
+                hasattr(self.store, "stresses") and len(self.store.stresses.index) > 0
+            )
+            has_models = (
+                hasattr(self.store, "model_names") and len(self.store.model_names) > 0
+            )
             return has_oseries or has_stresses or has_models
         except Exception:
             return False
@@ -711,9 +720,7 @@ class PastastoreViewer:
                 self.dock_widget.save_state_to_project()
 
             if notify:
-                self._push_message(
-                    "Success", "Created new empty pastastore.", level=0
-                )
+                self._push_message("Success", "Created new empty pastastore.", level=0)
         except Exception as e:
             import traceback
 
@@ -724,9 +731,7 @@ class PastastoreViewer:
 
     def save_pastastore(self):
         if not self.store:
-            self._push_message(
-                "No Store", "Load a pastastore before saving.", level=1
-            )
+            self._push_message("No Store", "Load a pastastore before saving.", level=1)
             return
 
         default_path = ""
@@ -771,9 +776,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message(
-                "Error", f"Failed to save pastastore: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Failed to save pastastore: {str(e)}", level=2)
             print(traceback.format_exc())
         finally:
             try:
@@ -823,9 +826,7 @@ class PastastoreViewer:
                     # Set active layer based on current tab
                     self._set_active_layer_for_current_tab()
                     self._restore_selection_from_project()
-                self._push_message(
-                    "Success", f"Loaded {filename}", level=0
-                )
+                self._push_message("Success", f"Loaded {filename}", level=0)
             except Exception as e:
                 err_msg = traceback.format_exc()
                 QMessageBox.critical(
@@ -1318,9 +1319,7 @@ class PastastoreViewer:
                 if self.plot_dock:
                     self.plot_dock.plot_models(data_list)
         except Exception as e:
-            self._push_message(
-                "Error", f"Plot error: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Plot error: {str(e)}", level=2)
 
     def delete_models(self, names):
         if not self.store:
@@ -1351,9 +1350,7 @@ class PastastoreViewer:
                     self.plot_dock.clear_plot()
 
                 self.store_modified = True
-                self._push_message(
-                    "Success", f"Deleted {len(names)} model(s)", level=0
-                )
+                self._push_message("Success", f"Deleted {len(names)} model(s)", level=0)
 
             except Exception as e:
                 import traceback
@@ -1399,9 +1396,7 @@ class PastastoreViewer:
                     self.plot_dock.clear_plot()
 
                 self.store_modified = True
-                self._push_message(
-                    "Success", f"Deleted {len(names)} oseries", level=0
-                )
+                self._push_message("Success", f"Deleted {len(names)} oseries", level=0)
 
             except Exception as e:
                 import traceback
@@ -1450,9 +1445,7 @@ class PastastoreViewer:
                     self.plot_dock.clear_plot()
 
                 self.store_modified = True
-                self._push_message(
-                    "Success", f"Deleted {len(names)} stresses", level=0
-                )
+                self._push_message("Success", f"Deleted {len(names)} stresses", level=0)
 
             except Exception as e:
                 import traceback
@@ -1472,7 +1465,9 @@ class PastastoreViewer:
             ml = self.store.get_models(model_name)
 
             while True:
-                dlg = ModelEditorDialog(ml, self.store, self.iface.mainWindow(), can_solve=can_solve)
+                dlg = ModelEditorDialog(
+                    ml, self.store, self.iface.mainWindow(), can_solve=can_solve
+                )
                 if not dlg.exec_():
                     # User closed the editor without saving
                     return
@@ -1526,9 +1521,7 @@ class PastastoreViewer:
                 self.store.add_model(new_model, overwrite=True)
                 self.store_modified = True
 
-                self._push_message(
-                    "Success", f"Saved model: {new_name}", level=0
-                )
+                self._push_message("Success", f"Saved model: {new_name}", level=0)
 
                 # Update UI
                 if self.dock_widget:
@@ -1547,9 +1540,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message(
-                "Error", f"Failed to edit model: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Failed to edit model: {str(e)}", level=2)
             print(traceback.format_exc())
 
     def create_model_from_oseries(self, oseries_name):
@@ -1591,9 +1582,7 @@ class PastastoreViewer:
                 self.store.add_model(new_model, overwrite=True)
                 self.store_modified = True
 
-                self._push_message(
-                    "Success", f"Created model: {new_name}", level=0
-                )
+                self._push_message("Success", f"Created model: {new_name}", level=0)
 
                 if self.dock_widget:
                     self.dock_widget.populate_lists(self.store)
@@ -1606,9 +1595,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message(
-                "Error", f"Failed to create model: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Failed to create model: {str(e)}", level=2)
             print(traceback.format_exc())
 
     def create_models_from_oseries(self, oseries_names):
@@ -1658,6 +1645,9 @@ class PastastoreViewer:
                     level=1,
                 )
             return
+
+        if solve:
+            _apply_scipy_callback_patch()
 
         failed = self.store.create_models_bulk(
             oseries_to_create,
@@ -1733,9 +1723,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message(
-                "Error", f"Failed to show results: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Failed to show results: {str(e)}", level=2)
             print(traceback.format_exc())
 
     def open_diagnostics_plot(self, model_name):
@@ -1814,7 +1802,11 @@ class PastastoreViewer:
         if var_key.startswith("stat:"):
             stat_key = var_key[5:]
             label = next(
-                (lbl for lbl, s in self.dock_widget.AVAILABLE_MODEL_STATS if s == stat_key),
+                (
+                    lbl
+                    for lbl, s in self.dock_widget.AVAILABLE_MODEL_STATS
+                    if s == stat_key
+                ),
                 stat_key,
             )
             value_type = "stat"
@@ -1864,7 +1856,9 @@ class PastastoreViewer:
                     val_item = table.item(row_i, col_idx)
                     if name_item and val_item:
                         try:
-                            cached_values[name_item.text()] = float(val_item.data(DISPLAY_ROLE))
+                            cached_values[name_item.text()] = float(
+                                val_item.data(DISPLAY_ROLE)
+                            )
                         except (TypeError, ValueError):
                             pass
 
@@ -1916,6 +1910,7 @@ class PastastoreViewer:
         BASE_SIZE = 5.0
         SIZE_STEP = 3.0
         from collections import defaultdict
+
         loc_groups = defaultdict(list)
         for rec in valid_records:
             loc_groups[(rec[1], rec[2])].append(rec)
@@ -1943,7 +1938,16 @@ class PastastoreViewer:
                 lbl_off_x = xsign * offset_mm
                 lbl_off_y = ysign * offset_mm
                 records_with_size.append(
-                    (mname, rx, ry, val, marker_size, lbl_quadrant, lbl_off_x, lbl_off_y)
+                    (
+                        mname,
+                        rx,
+                        ry,
+                        val,
+                        marker_size,
+                        lbl_quadrant,
+                        lbl_off_x,
+                        lbl_off_y,
+                    )
                 )
 
         # Sort so larger markers are added first (rendered first = underneath)
@@ -1956,14 +1960,16 @@ class PastastoreViewer:
         vl.setCustomProperty("skipMemoryLayersCheck", 1)
         vl.setCustomProperty("pastastore_type", "model_map_plot")
         pr = vl.dataProvider()
-        pr.addAttributes([
-            QgsField("name", QVariant.String),
-            QgsField("value", QVariant.Double),
-            QgsField("marker_size", QVariant.Double),
-            QgsField("lbl_quadrant", QVariant.Int),
-            QgsField("lbl_off_x", QVariant.Double),
-            QgsField("lbl_off_y", QVariant.Double),
-        ])
+        pr.addAttributes(
+            [
+                QgsField("name", QVariant.String),
+                QgsField("value", QVariant.Double),
+                QgsField("marker_size", QVariant.Double),
+                QgsField("lbl_quadrant", QVariant.Int),
+                QgsField("lbl_off_x", QVariant.Double),
+                QgsField("lbl_off_y", QVariant.Double),
+            ]
+        )
         vl.updateFields()
 
         feats = []
@@ -2010,9 +2016,10 @@ class PastastoreViewer:
         label_settings.fieldName = 'format_number("value", 3)'
         label_settings.isExpression = True
         # QGIS 4: placement expects Qgis.LabelPlacement; QGIS 3: QgsPalLayerSettings.OverPoint
-        _over_point = getattr(
-            getattr(Qgis, "LabelPlacement", None), "OverPoint", None
-        ) or QgsPalLayerSettings.OverPoint
+        _over_point = (
+            getattr(getattr(Qgis, "LabelPlacement", None), "OverPoint", None)
+            or QgsPalLayerSettings.OverPoint
+        )
         label_settings.placement = _over_point
         tf = QgsTextFormat()
         label_settings.setFormat(tf)
@@ -2123,9 +2130,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message(
-                "Error", f"Failed to select models: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Failed to select models: {str(e)}", level=2)
             print(traceback.format_exc())
 
     def select_models_for_stresses(self, stress_names):
@@ -2217,9 +2222,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message(
-                "Error", f"Failed to select models: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Failed to select models: {str(e)}", level=2)
             print(traceback.format_exc())
 
     def select_oseries_for_models(self, model_names):
@@ -2260,9 +2263,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message(
-                "Error", f"Failed to select oseries: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Failed to select oseries: {str(e)}", level=2)
             print(traceback.format_exc())
 
     def select_stresses_for_models(self, model_names):
@@ -2329,9 +2330,7 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message(
-                "Error", f"Failed to select stresses: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Failed to select stresses: {str(e)}", level=2)
             print(traceback.format_exc())
 
     def open_oseries_editor(self, oseries_name):
@@ -2375,23 +2374,22 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message(
-                "Error", f"Failed to edit oseries: {str(e)}", level=2
-            )
+            self._push_message("Error", f"Failed to edit oseries: {str(e)}", level=2)
             print(traceback.format_exc())
 
     def open_bro_import_dialog(self):
         """Open the BRO import dialog."""
         if not self.store:
-            self._push_message(
-                "Warning", "Please load a pastastore first.", level=1
-            )
+            self._push_message("Warning", "Please load a pastastore first.", level=1)
             return
         if not self._require_feature(FEATURE_PRONL, "ProNL"):
             return
 
         try:
-            if self.bro_import_dialog is not None and self.bro_import_dialog.isVisible():
+            if (
+                self.bro_import_dialog is not None
+                and self.bro_import_dialog.isVisible()
+            ):
                 self.bro_import_dialog.raise_()
                 self.bro_import_dialog.activateWindow()
                 return
@@ -2420,9 +2418,7 @@ class PastastoreViewer:
     def open_knmi_import_dialog(self):
         """Open the KNMI import dialog."""
         if not self.store:
-            self._push_message(
-                "Warning", "Please load a pastastore first.", level=1
-            )
+            self._push_message("Warning", "Please load a pastastore first.", level=1)
             return
         if not self._require_feature(FEATURE_PRONL, "ProNL"):
             return
@@ -2471,15 +2467,15 @@ class PastastoreViewer:
         try:
             added_count = 0
             for series_name, series_info in series_dict.items():
-                df = series_info['data']
-                metadata = series_info.get('metadata', {})
+                df = series_info["data"]
+                metadata = series_info.get("metadata", {})
 
                 # Convert DataFrame to Series if needed
                 if isinstance(df, pd.DataFrame):
-                    if 'value' in df.columns:
-                        series = df['value']
-                    elif 'stand' in df.columns:
-                        series = df['stand']
+                    if "value" in df.columns:
+                        series = df["value"]
+                    elif "stand" in df.columns:
+                        series = df["stand"]
                     else:
                         series = df.iloc[:, 0]
                 else:
@@ -2546,4 +2542,3 @@ class PastastoreViewer:
                 "Error", f"Failed to add KNMI stresses to store: {str(e)}", level=2
             )
             print(traceback.format_exc())
-

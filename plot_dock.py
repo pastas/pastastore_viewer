@@ -6,7 +6,6 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
     QLabel,
 )
-from qgis.PyQt.QtCore import Qt
 from .plot_toolbar import PlotNavigationWidget
 from .qt_compat import DOCK_AREA_BOTTOM, DOCK_AREA_TOP
 

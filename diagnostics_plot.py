@@ -1,8 +1,6 @@
 from qgis.PyQt.QtWidgets import (
     QDialog,
     QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
 )
 from qgis.PyQt.QtCore import Qt
 import pyqtgraph as pg

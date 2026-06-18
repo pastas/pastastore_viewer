@@ -3,6 +3,8 @@
 
 Run this with the same Python that QGIS uses, for example:
     path/to/qgis/python.exe bundle_deps.py
+
+    & "C:\Program Files\QGIS 3.34.12\bin\python-qgis-ltr.bat" bundle_deps.py --git-exe "C:\Program Files\Git\cmd\git.exe"
 """
 
 from __future__ import annotations
@@ -13,7 +15,7 @@ import os
 import subprocess
 import sys
 import json
-
+import shutil
 
 
 # You can specify versions/branches/commits in the following ways:
@@ -22,7 +24,7 @@ import json
 #   - "package @ git+https://github.com/user/repo@commit"
 #   - Or just "package" for latest
 DEFAULT_PACKAGES = [
-    "pastastore",
+    "pastastore @ git+https://github.com/pastas/pastastore@dev",
     "pastas @ git+https://github.com/pastas/pastas@dev",
     "pyqtgraph",
     "brodata @ git+https://github.com/ArtesiaWater/brodata@dev",
@@ -43,13 +45,42 @@ def ensure_pip_available() -> bool:
         return False
 
 
-def run_pip_install(target_dir: str, packages: list[str], no_deps: bool) -> int:
+def run_pip_install(
+    target_dir: str,
+    packages: list[str],
+    no_deps: bool,
+    env: dict[str, str] | None = None,
+) -> int:
     cmd = [sys.executable, "-m", "pip", "install", "--upgrade", "--target", target_dir]
     if no_deps:
         cmd.append("--no-deps")
     cmd.extend(packages)
-    return subprocess.call(cmd)
+    return subprocess.call(cmd, env=env)
 
+
+def build_install_env(packages: list[str], git_exe: str | None) -> dict[str, str]:
+    env = os.environ.copy()
+    needs_git = any("git+" in pkg for pkg in packages)
+    if not needs_git:
+        return env
+
+    # Explicit override for environments (like QGIS launchers) with limited PATH.
+    if git_exe:
+        git_exe = os.path.abspath(git_exe)
+        if not os.path.exists(git_exe):
+            raise FileNotFoundError(f"Git executable not found: {git_exe}")
+        git_dir = os.path.dirname(git_exe)
+        env["PATH"] = git_dir + os.pathsep + env.get("PATH", "")
+        return env
+
+    # Auto-fallback for common Windows Git installation.
+    if shutil.which("git", path=env.get("PATH", "")) is None:
+        default_git = r"C:\Program Files\Git\cmd\git.exe"
+        if os.path.exists(default_git):
+            git_dir = os.path.dirname(default_git)
+            env["PATH"] = git_dir + os.pathsep + env.get("PATH", "")
+
+    return env
 
 
 def main() -> int:
@@ -66,20 +97,25 @@ def main() -> int:
         nargs="+",
         default=DEFAULT_PACKAGES,
         help="Packages to install into the target folder.\n"
-             "You can specify versions or git refs, e.g.:\n"
-             "  pastas==1.13.2 hydropandas @ git+https://github.com/ArtesiaWater/hydropandas@main",
+        "You can specify versions or git refs, e.g.:\n"
+        "  pastas==1.13.2 hydropandas @ git+https://github.com/ArtesiaWater/hydropandas@main",
     )
     parser.add_argument(
         "--package-specs",
         default=None,
         help="Optional: Path to a JSON file with a list of package specs (overrides --packages).\n"
-             "Each item can be a string (as above) or a dict with 'name' and 'spec'.",
+        "Each item can be a string (as above) or a dict with 'name' and 'spec'.",
     )
     parser.add_argument(
         "--no-deps",
         action="store_true",
         default=True,
         help="Do not install transitive dependencies (default: true)",
+    )
+    parser.add_argument(
+        "--git-exe",
+        default=None,
+        help="Optional: Full path to git executable for git+ package installs.",
     )
     args = parser.parse_args()
 
@@ -104,8 +140,16 @@ def main() -> int:
     print("Using Python:", sys.executable)
     print("Target folder:", target_dir)
     print("Packages:", ", ".join(packages))
+    if args.git_exe:
+        print("Git executable:", os.path.abspath(args.git_exe))
 
-    exit_code = run_pip_install(target_dir, packages, args.no_deps)
+    try:
+        install_env = build_install_env(packages, args.git_exe)
+    except FileNotFoundError as e:
+        print(str(e))
+        return 2
+
+    exit_code = run_pip_install(target_dir, packages, args.no_deps, env=install_env)
     if exit_code == 0:
         print("Done. Commit the dependencies/ folder with the plugin.")
     return exit_code

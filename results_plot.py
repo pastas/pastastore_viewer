@@ -5,7 +5,6 @@ from qgis.PyQt.QtWidgets import (
     QScrollArea,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
     QGraphicsProxyWidget,
     QPushButton,
     QHBoxLayout,
@@ -111,7 +110,7 @@ class ResultsPlotDialog(QDialog):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if hasattr(self, '_resize_timer'):
+        if hasattr(self, "_resize_timer"):
             self._resize_timer.start()
 
     def load_settings(self):
@@ -160,7 +159,6 @@ class ResultsPlotDialog(QDialog):
         self.save_settings()
         self.plot_results()
 
-
     def _prepare_data(self, series):
         if series is None or series.empty:
             return None, None
@@ -183,7 +181,7 @@ class ResultsPlotDialog(QDialog):
         if series.empty:
             return None, None
 
-        x = series.index.astype('datetime64[s]').astype(np.int64)
+        x = series.index.astype("datetime64[s]").astype(np.int64)
         y = series.values
         mask = ~np.isnan(y)
         return x[mask], y[mask]
@@ -218,7 +216,7 @@ class ResultsPlotDialog(QDialog):
 
         # Plot 1: Residuals & Noise
         res = ml.residuals()
-        noise = ml.noise() if ml.settings["noise"] else None
+        noise = None if ml.noisemodel is None else ml.noise()
         rmin, rmax = get_series_stats_local(res)
         if noise is not None:
             nmin, nmax = get_series_stats_local(noise)
@@ -252,7 +250,9 @@ class ResultsPlotDialog(QDialog):
             m = self.main_layout.contentsMargins()
             viewport_h = max(self.height() - toolbar_h - m.top() - m.bottom() - 15, 200)
 
-        total_overhead = num_plots * OVERHEAD + max(num_plots - 1, 0) * SPACING + MARGINS
+        total_overhead = (
+            num_plots * OVERHEAD + max(num_plots - 1, 0) * SPACING + MARGINS
+        )
         available_data_h = max(viewport_h - total_overhead, num_plots * 5)
         ppu = available_data_h / total_data_range if total_data_range > 0 else 50.0
 
@@ -380,7 +380,7 @@ class ResultsPlotDialog(QDialog):
 
         for sm_name, sm in self.ml.stressmodels.items():
             # plot the contribution
-            nsplit = sm.get_nsplit() if self.split_contributions else 1
+            nsplit = sm.nsplit if self.split_contributions else 1
             if nsplit == 0:
                 nsplit = 1
             for istress in range(nsplit):
@@ -447,7 +447,11 @@ class ResultsPlotDialog(QDialog):
             side_plots.append(p_rf)
 
             if response_data is not None and len(response_data) > 0:
-                x_resp = response_x if response_x is not None else np.arange(len(response_data))
+                x_resp = (
+                    response_x
+                    if response_x is not None
+                    else np.arange(len(response_data))
+                )
                 p_rf.plot(x_resp, response_data, pen=pg.mkPen(color, width=2))
                 # Tight x-limits around the data
                 x_min = float(np.nanmin(x_resp))

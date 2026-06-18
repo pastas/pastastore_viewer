@@ -8,12 +8,11 @@ from qgis.PyQt.QtWidgets import (
     QGraphicsRectItem,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
     QMessageBox,
     QInputDialog,
     QSplitter,
 )
-from qgis.PyQt.QtCore import Qt, QDateTime, QRectF
+from qgis.PyQt.QtCore import QDateTime, QRectF
 from qgis.PyQt.QtGui import QColor, QPen
 from qgis.core import QgsApplication
 import pandas as pd
@@ -296,7 +295,7 @@ class OseriesEditorDialog(QDialog):
         # Prepare data
         x = valid_data.index
         if pd.api.types.is_datetime64_any_dtype(x):
-            x = x.astype('datetime64[s]').astype(np.int64)
+            x = x.astype("datetime64[s]").astype(np.int64)
         y = valid_data.values
 
         self._plot_x = np.array(x)

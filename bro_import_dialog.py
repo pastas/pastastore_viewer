@@ -9,7 +9,6 @@ from qgis.PyQt.QtWidgets import (
     QLineEdit,
     QTableWidget,
     QTableWidgetItem,
-    QHeaderView,
     QMessageBox,
     QComboBox,
     QSplitter,
@@ -19,7 +18,6 @@ from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QProgressDialog,
     QListWidget,
-    QAbstractItemView,
     QApplication,
     QFileDialog,
 )
