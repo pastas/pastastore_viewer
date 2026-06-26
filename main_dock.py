@@ -1,3 +1,16 @@
+from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QComboBox,
+    QSizePolicy,
+    QDialogButtonBox,
+    QMessageBox,
+    QDialog,
+    QMenu,
+)
+
 # -*- coding: utf-8 -*-
 
 from qgis.PyQt.QtWidgets import (
@@ -22,23 +35,12 @@ from qgis.PyQt.QtGui import QLinearGradient, QPainter, QPixmap
 from qgis.core import QgsApplication, QgsStyle
 import pandas as pd
 import numpy as np
-from .qt_compat import (
-    DOCK_AREA_LEFT,
-    DOCK_AREA_RIGHT,
-    TOOLBUTTON_TEXT_BESIDE_ICON,
-    CONTEXT_MENU_CUSTOM,
-    DISPLAY_ROLE,
-    SELECTION_BEHAVIOR_SELECT_ROWS,
-    SELECTION_MODE_EXTENDED,
-    EDIT_TRIGGERS_NONE,
-    HEADER_RESIZE_INTERACTIVE,
-    COMBO_SIZE_ADJUST_MIN_CONTENTS_WITH_ICON,
-)
+
 from .i18n_helper import tr as _i18n_tr
 
 
 if hasattr(QToolButton, "InstantPopup"):
-    TOOLBUTTON_POPUP_INSTANT = QToolButton.InstantPopup
+    TOOLBUTTON_POPUP_INSTANT = QToolButton.ToolButtonPopupMode.InstantPopup
 else:
     TOOLBUTTON_POPUP_INSTANT = QToolButton.ToolButtonPopupMode.InstantPopup
 
@@ -79,7 +81,7 @@ class PastastoreMainDock(QDockWidget):
     def __init__(self, parent=None):
         super(PastastoreMainDock, self).__init__(_tr("Pastastore Viewer"), parent)
         self.setObjectName("PastastoreMainDock")
-        self.setAllowedAreas(DOCK_AREA_RIGHT | DOCK_AREA_LEFT)
+        self.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea)
 
         # State
         self.is_restoring = False
@@ -143,7 +145,7 @@ class PastastoreMainDock(QDockWidget):
         self.btn_import.setText(_tr("Import Data"))
         self.btn_import.setIcon(QgsApplication.getThemeIcon("/mActionAdd.svg"))
         self.btn_import.setToolTip(_tr("Import data from external sources"))
-        self.btn_import.setToolButtonStyle(TOOLBUTTON_TEXT_BESIDE_ICON)
+        self.btn_import.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         import_menu = QMenu()
         import_bro_action = import_menu.addAction(_tr("Download from BRO"))
         import_bro_action.triggered.connect(lambda: self.import_bro_requested.emit())
@@ -170,7 +172,7 @@ class PastastoreMainDock(QDockWidget):
         self.btn_import_stresses.setToolTip(
             _tr("Import stress data from external sources")
         )
-        self.btn_import_stresses.setToolButtonStyle(TOOLBUTTON_TEXT_BESIDE_ICON)
+        self.btn_import_stresses.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         stresses_import_menu = QMenu()
         import_knmi_action = stresses_import_menu.addAction(_tr("Download from KNMI"))
         import_knmi_action.triggered.connect(
@@ -192,17 +194,17 @@ class PastastoreMainDock(QDockWidget):
         models_layout.setContentsMargins(0, 0, 0, 0)
 
         self.table_models = QTableWidget()
-        self.table_models.setSelectionBehavior(SELECTION_BEHAVIOR_SELECT_ROWS)
-        self.table_models.setSelectionMode(SELECTION_MODE_EXTENDED)
-        self.table_models.horizontalHeader().setSectionResizeMode(HEADER_RESIZE_INTERACTIVE)
+        self.table_models.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table_models.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.table_models.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table_models.horizontalHeader().setStretchLastSection(True)
-        self.table_models.setEditTriggers(EDIT_TRIGGERS_NONE)
+        self.table_models.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_models.setSortingEnabled(True)
-        self.table_models.setContextMenuPolicy(CONTEXT_MENU_CUSTOM)
+        self.table_models.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_models.setColumnCount(2)
         self.table_models.setHorizontalHeaderLabels(["Name", "Oseries"])
         # Right-click on header to add/remove stat columns
-        self.table_models.horizontalHeader().setContextMenuPolicy(CONTEXT_MENU_CUSTOM)
+        self.table_models.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_models.horizontalHeader().customContextMenuRequested.connect(
             self._show_models_header_menu
         )
@@ -217,7 +219,7 @@ class PastastoreMainDock(QDockWidget):
         var_row = QHBoxLayout()
         var_row.addWidget(QLabel(_tr("Variable:")))
         self.combo_map_var = QComboBox()
-        self.combo_map_var.setSizeAdjustPolicy(COMBO_SIZE_ADJUST_MIN_CONTENTS_WITH_ICON)
+        self.combo_map_var.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.combo_map_var.setMinimumContentsLength(10)
         var_row.addWidget(self.combo_map_var, 1)
         map_plot_layout.addLayout(var_row)
@@ -264,14 +266,14 @@ class PastastoreMainDock(QDockWidget):
         models_widget.setLayout(models_layout)
 
         for table in [self.table_oseries, self.table_stresses]:
-            table.setSelectionBehavior(SELECTION_BEHAVIOR_SELECT_ROWS)
-            table.setSelectionMode(SELECTION_MODE_EXTENDED)
+            table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+            table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
             # Allow resizing
-            table.horizontalHeader().setSectionResizeMode(HEADER_RESIZE_INTERACTIVE)
+            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
             table.horizontalHeader().setStretchLastSection(True)
-            table.setEditTriggers(EDIT_TRIGGERS_NONE)
+            table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
             table.setSortingEnabled(True)
-            table.setContextMenuPolicy(CONTEXT_MENU_CUSTOM)
+            table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
         self.tabs.addTab(oseries_widget, _tr("Oseries"))
         self.tabs.addTab(stresses_widget, _tr("Stresses"))
@@ -349,7 +351,7 @@ class PastastoreMainDock(QDockWidget):
     @staticmethod
     def _exec_menu(menu, global_pos):
         if hasattr(menu, "exec_"):
-            return menu.exec_(global_pos)
+            return menu.exec(global_pos)
         return menu.exec(global_pos)
 
     def _show_models_header_menu(self, position):
@@ -421,7 +423,7 @@ class PastastoreMainDock(QDockWidget):
             val = values.get(name)
             cell = QTableWidgetItem()
             if val is not None and not (isinstance(val, float) and np.isnan(val)):
-                cell.setData(DISPLAY_ROLE, float(val))
+                cell.setData(Qt.ItemDataRole.DisplayRole, float(val))
             else:
                 cell.setText("-")
             self.table_models.setItem(row, col, cell)
@@ -621,7 +623,7 @@ class PastastoreMainDock(QDockWidget):
                     item = QTableWidgetItem()
                     if isinstance(val, (int, float, np.integer, np.floating)):
                         if not np.isnan(val):
-                            item.setData(DISPLAY_ROLE, float(val))
+                            item.setData(Qt.ItemDataRole.DisplayRole, float(val))
                         else:
                             item.setText("")
                     else:
@@ -646,7 +648,7 @@ class PastastoreMainDock(QDockWidget):
                     item = QTableWidgetItem()
                     if isinstance(val, (int, float, np.integer, np.floating)):
                         if not np.isnan(val):
-                            item.setData(DISPLAY_ROLE, float(val))
+                            item.setData(Qt.ItemDataRole.DisplayRole, float(val))
                         else:
                             item.setText("")
                     else:
@@ -790,8 +792,6 @@ class PastastoreMainDock(QDockWidget):
                     return
 
                 if isinstance(list_widget, QTableWidget):
-                    from qgis.PyQt.QtCore import QItemSelectionModel
-
                     selection_model = list_widget.selectionModel()
 
                     if isinstance(list_widget, QTableWidget):
@@ -801,8 +801,8 @@ class PastastoreMainDock(QDockWidget):
                                 index = list_widget.model().index(row, 0)
                                 selection_model.select(
                                     index,
-                                    QItemSelectionModel.Select
-                                    | QItemSelectionModel.Rows,
+                                    QItemSelectionModel.SelectionFlag.Select
+                                    | QItemSelectionModel.SelectionFlag.Rows,
                                 )
                     else:  # QTableWidget (models)
                         for row in range(list_widget.rowCount()):
@@ -811,8 +811,8 @@ class PastastoreMainDock(QDockWidget):
                                 index = list_widget.model().index(row, 0)
                                 selection_model.select(
                                     index,
-                                    QItemSelectionModel.Select
-                                    | QItemSelectionModel.Rows,
+                                    QItemSelectionModel.SelectionFlag.Select
+                                    | QItemSelectionModel.SelectionFlag.Rows,
                                 )
 
                     if isinstance(list_widget, QTableWidget):

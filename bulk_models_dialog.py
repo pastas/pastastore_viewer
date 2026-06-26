@@ -1,3 +1,16 @@
+from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QComboBox,
+    QSizePolicy,
+    QDialogButtonBox,
+    QMessageBox,
+    QDialog,
+    QMenu,
+)
+
 from qgis.PyQt.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -11,6 +24,7 @@ from qgis.PyQt.QtWidgets import (
 from qgis.PyQt.QtCore import QDate
 import pandas as pd
 from .i18n_helper import tr as _i18n_tr
+
 
 
 def _tr(message):
@@ -72,7 +86,7 @@ class BulkModelsDialog(QDialog):
 
         self._toggle_solve_fields(False)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

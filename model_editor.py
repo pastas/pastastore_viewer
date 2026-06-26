@@ -1,3 +1,16 @@
+from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QComboBox,
+    QSizePolicy,
+    QDialogButtonBox,
+    QMessageBox,
+    QDialog,
+    QMenu,
+)
+
 # -*- coding: utf-8 -*-
 # Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
 # This software is proprietary. See LICENSE.md for details.
@@ -23,11 +36,12 @@ from qgis.PyQt.QtWidgets import (
     QDateEdit,
     QProgressDialog,
     QApplication,
+    QFileDialog,
 )
 from qgis.PyQt.QtCore import Qt, QDate
 from qgis.core import QgsApplication, QgsMessageLog, Qgis
 from .plot_toolbar import PlotNavigationWidget
-from .qt_compat import ITEM_IS_EDITABLE, APPLICATION_MODAL, HEADER_RESIZE_STRETCH
+
 from .i18n_helper import tr as _i18n_tr
 import pandas as pd
 import numpy as np
@@ -79,10 +93,12 @@ class ModelEditorDialog(QDialog):
         self.setWindowTitle(_tr("View Model"))
         self.resize(800, 800)
 
+        self._is_populating = True
         self.original_model = model
         self.store = store
         self.can_solve = can_solve
         self.new_model = None
+        self._edited = False
 
         # Helper to get available series
         self.available_stresses = []
@@ -217,7 +233,7 @@ class ModelEditorDialog(QDialog):
         self.table_params.setHorizontalHeaderLabels(
             ["initial", "optimal", "pmin", "pmax", "vary", "stderr"]
         )
-        self.table_params.horizontalHeader().setSectionResizeMode(HEADER_RESIZE_STRETCH)
+        self.table_params.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         self.vbox_params.addWidget(self.table_params)
         self.tabs.addTab(self.tab_parameters, _tr("Parameters"))
 
@@ -249,7 +265,7 @@ class ModelEditorDialog(QDialog):
 
         self.detail_type = QComboBox()
         self.detail_type.addItems(
-            ["StressModel", "RechargeModel", "StepModel", "LinearTrend"]
+            ["StressModel", "RechargeModel", "TarsoModel", "StepModel", "LinearTrend"]
         )
         self.detail_type.currentTextChanged.connect(self.save_detail_type)
 
@@ -322,22 +338,27 @@ class ModelEditorDialog(QDialog):
         if not self.can_solve:
             self.btn_solve.setToolTip(_tr("Upgrade to Pro to solve models"))
 
+        self.btn_save_pas = QPushButton(_tr("Save as pas-file"))
+        self.btn_save_pas.setIcon(QgsApplication.getThemeIcon("/mActionFileSave.svg"))
+        self.btn_save_pas.clicked.connect(self.save_as_pas)
+
         self.button_box = QDialogButtonBox(
-            QDialogButtonBox.Save | QDialogButtonBox.Cancel
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-        self.button_box.button(QDialogButtonBox.Save).setText(_tr("Save Model"))
-        self.button_box.button(QDialogButtonBox.Save).setIcon(
+        self.button_box.button(QDialogButtonBox.StandardButton.Save).setText(_tr("Save Model"))
+        self.button_box.button(QDialogButtonBox.StandardButton.Save).setIcon(
             QgsApplication.getThemeIcon("/mActionFileSave.svg")
         )
-        self.button_box.button(QDialogButtonBox.Cancel).setIcon(
+        self.button_box.button(QDialogButtonBox.StandardButton.Cancel).setIcon(
             QgsApplication.getThemeIcon("/mActionCancel.svg")
         )
 
         bottom_layout = QHBoxLayout()
         bottom_layout.addStretch()
         bottom_layout.addWidget(self.btn_solve)
+        bottom_layout.addWidget(self.btn_save_pas)
         bottom_layout.addWidget(self.button_box)
         self.layout.addLayout(bottom_layout)
 
@@ -351,43 +372,67 @@ class ModelEditorDialog(QDialog):
         self.update_plot(model)
         self.update_parameters_table(model)
 
+        # Connect change signals to mark_edited
+        self.le_name.textChanged.connect(self.mark_edited)
+        self.de_tmin.dateChanged.connect(self.mark_edited)
+        self.de_tmax.dateChanged.connect(self.mark_edited)
+        self.cbo_freq.currentTextChanged.connect(self.mark_edited)
+        self.table_params.itemChanged.connect(self.mark_edited)
+
+        self.detail_name.textChanged.connect(self.mark_edited)
+        self.detail_type.currentTextChanged.connect(self.mark_edited)
+        self.detail_rfunc.currentTextChanged.connect(self.mark_edited)
+        self.detail_recharge.currentTextChanged.connect(self.mark_edited)
+        self.detail_up.toggled.connect(self.mark_edited)
+        self.detail_input1.currentTextChanged.connect(self.mark_edited)
+        self.detail_input2.currentTextChanged.connect(self.mark_edited)
+        self.detail_step_date.dateChanged.connect(self.mark_edited)
+        self.detail_trend_start.dateChanged.connect(self.mark_edited)
+        self.detail_trend_end.dateChanged.connect(self.mark_edited)
+
+        self._is_populating = False
+
     def update_parameters_table(self, model):
-        self.table_params.setRowCount(0)
-        if hasattr(model, "parameters"):
-            df = model.parameters
-            # Order: initial, optimal, pmin, pmax, vary, stderr
-            # Note: 'stderr' might be missing if not solved or from earlier version?
-            # Usually present after solve.
-            self.table_params.setRowCount(len(df))
-            for i, (idx, row) in enumerate(df.iterrows()):
-                # Row Header
-                self.table_params.setVerticalHeaderItem(i, QTableWidgetItem(str(idx)))
+        self.table_params.blockSignals(True)
+        try:
+            self.table_params.setRowCount(0)
+            if hasattr(model, "parameters"):
+                df = model.parameters
+                # Order: initial, optimal, pmin, pmax, vary, stderr
+                # Note: 'stderr' might be missing if not solved or from earlier version?
+                # Usually present after solve.
+                self.table_params.setRowCount(len(df))
+                for i, (idx, row) in enumerate(df.iterrows()):
+                    # Row Header
+                    self.table_params.setVerticalHeaderItem(i, QTableWidgetItem(str(idx)))
 
-                # Cols
-                cols = ["initial", "optimal", "pmin", "pmax", "vary", "stderr"]
-                for j, col in enumerate(cols):
-                    val = row.get(col, "")
-                    # Format numeric values with 4 decimal places
-                    if col != "vary" and val != "":
-                        try:
-                            val_float = float(val)
-                            if not np.isnan(val_float):
-                                val = f"{val_float:.4f}"
-                            else:
-                                val = "-"
-                        except (ValueError, TypeError):
+                    # Cols
+                    cols = ["initial", "optimal", "pmin", "pmax", "vary", "stderr"]
+                    for j, col in enumerate(cols):
+                        val = row.get(col, "")
+                        # Format numeric values with 4 decimal places
+                        if col != "vary" and val != "":
+                            try:
+                                val_float = float(val)
+                                if not np.isnan(val_float):
+                                    val = f"{val_float:.4f}"
+                                else:
+                                    val = "-"
+                            except (ValueError, TypeError):
+                                val = str(val)
+                        else:
                             val = str(val)
-                    else:
-                        val = str(val)
 
-                    item = QTableWidgetItem(val)
+                        item = QTableWidgetItem(val)
 
-                    # Editable columns: initial, pmin, pmax, vary
-                    # Optimal and stderr are results (read-only mostly, but allow copy)
-                    if col in ["optimal", "stderr"]:
-                        item.setFlags(item.flags() ^ ITEM_IS_EDITABLE)
+                        # Editable columns: initial, pmin, pmax, vary
+                        # Optimal and stderr are results (read-only mostly, but allow copy)
+                        if col in ["optimal", "stderr"]:
+                            item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
 
-                    self.table_params.setItem(i, j, item)
+                        self.table_params.setItem(i, j, item)
+        finally:
+            self.table_params.blockSignals(False)
 
     def fit_plot(self):
         """Reset zoom to show all data with standard bounds."""
@@ -463,15 +508,16 @@ class ModelEditorDialog(QDialog):
                     if hasattr(s, "name"):
                         entry["inputs"].append(s.name)
 
-            # RechargeModel specific
-            if cls_name == "RechargeModel":
+            # RechargeModel / TarsoModel specific
+            if cls_name in ["RechargeModel", "TarsoModel"]:
                 if hasattr(sm, "prec"):
                     entry["inputs"] = []
                     if hasattr(sm.prec, "name"):
                         entry["inputs"].append(sm.prec.name)
                     if hasattr(sm.evap, "name"):
                         entry["inputs"].append(sm.evap.name)
-                    entry["recharge"] = sm.recharge.__class__.__name__
+                    if cls_name == "RechargeModel":
+                        entry["recharge"] = sm.recharge.__class__.__name__
 
             # StepModel specific
             if cls_name == "StepModel":
@@ -585,6 +631,7 @@ class ModelEditorDialog(QDialog):
     def update_detail_visibility(self, type_name):
         # Default visibility
         self.detail_rfunc.setVisible(True)
+        self.detail_rfunc.setEnabled(True)
         self.detail_up.setVisible(True)
         self.detail_input1.setVisible(True)
         self.detail_input2.setVisible(False)
@@ -610,6 +657,19 @@ class ModelEditorDialog(QDialog):
             self.detail_up.setVisible(False)  # Rfunc controls parameters mostly
             self.detail_recharge.setVisible(True)
             self.form_detail.labelForField(self.detail_recharge).setVisible(True)
+        elif type_name == "TarsoModel":
+            self.detail_input1_lbl.setText("Precipitation:")
+            self.detail_input2_lbl.setText("Evaporation:")
+            self.detail_input2.setVisible(True)
+            self.detail_input2_lbl.setVisible(True)
+            self.detail_up.setVisible(False)
+            self.detail_recharge.setVisible(False)
+            self.form_detail.labelForField(self.detail_recharge).setVisible(False)
+            # TarsoModel only supports Exponential
+            self.detail_rfunc.blockSignals(True)
+            self.detail_rfunc.setCurrentText("Exponential")
+            self.detail_rfunc.blockSignals(False)
+            self.detail_rfunc.setEnabled(False)
         elif type_name == "StepModel":
             self.detail_input1.setVisible(False)
             self.detail_input1_lbl.setVisible(False)
@@ -644,6 +704,8 @@ class ModelEditorDialog(QDialog):
         s = self.get_current_setting()
         if s:
             s["type"] = text
+            if text == "TarsoModel":
+                s["rfunc"] = "Exponential"
             self.update_detail_visibility(text)
 
     def save_detail_rfunc(self, text):
@@ -717,12 +779,14 @@ class ModelEditorDialog(QDialog):
         self.stressmodel_settings.append(entry)
         self.list_stresses.addItem(name)
         self.list_stresses.setCurrentRow(len(self.stressmodel_settings) - 1)
+        self.mark_edited()
 
     def remove_stressmodel(self):
         row = self.list_stresses.currentRow()
         if row >= 0:
             del self.stressmodel_settings[row]
             self.list_stresses.takeItem(row)
+            self.mark_edited()
 
     def update_stats_label(self, model):
         try:
@@ -737,7 +801,7 @@ class ModelEditorDialog(QDialog):
         if show_progress:
             busy = QProgressDialog("Solving model...", None, 0, 0, self)
             busy.setWindowTitle("Please wait")
-            busy.setWindowModality(APPLICATION_MODAL)
+            busy.setWindowModality(Qt.WindowModality.ApplicationModal)
             busy.setMinimumDuration(0)
             busy.setCancelButton(None)
             busy.show()
@@ -814,6 +878,35 @@ class ModelEditorDialog(QDialog):
                         )
                         model.add_stressmodel(sm)
 
+                    elif sm_type == "TarsoModel":
+                        if len(inputs) < 2:
+                            continue
+                        prec = self.store.get_stresses(inputs[0])
+                        evap = self.store.get_stresses(inputs[1])
+
+                        # Pass list of settings: [precip, evap]
+                        sm_settings = [
+                            settings_dict.get(inputs[0]),
+                            settings_dict.get(inputs[1]),
+                        ]
+
+                        oseries_data = None
+                        if hasattr(model, "oseries") and model.oseries is not None:
+                            if hasattr(model.oseries, "series"):
+                                oseries_data = model.oseries.series
+                            elif hasattr(model.oseries, "series_original"):
+                                oseries_data = model.oseries.series_original
+
+                        sm = ps.TarsoModel(
+                            prec,
+                            evap,
+                            oseries=oseries_data,
+                            rfunc=rfunc,
+                            name=name,
+                            settings=sm_settings,
+                        )
+                        model.add_stressmodel(sm)
+
                     elif sm_type == "StepModel":
                         tstart = s.get("step_date")
                         if tstart:
@@ -846,7 +939,7 @@ class ModelEditorDialog(QDialog):
                     QgsMessageLog.logMessage(
                         stress_err,
                         "Pastastore Viewer",
-                        level=Qgis.Critical,
+                        level=Qgis.MessageLevel.Critical,
                     )
                     print(stress_err)
                     raise
@@ -921,16 +1014,16 @@ class ModelEditorDialog(QDialog):
             QgsMessageLog.logMessage(
                 err_msg,
                 "Pastastore Viewer",
-                level=Qgis.Critical,
+                level=Qgis.MessageLevel.Critical,
             )
             print(err_msg)
             msg = QMessageBox(self)
-            msg.setIcon(QMessageBox.Critical)
+            msg.setIcon(QMessageBox.Icon.Critical)
             msg.setWindowTitle(title)
             msg.setText(str(e))
             msg.setInformativeText("See details below for the full traceback.")
             msg.setDetailedText(err_msg)
-            msg.exec_()
+            msg.exec()
             self.lbl_stats.setText(f"Error: {str(e)}")
             return None
         finally:
@@ -939,6 +1032,37 @@ class ModelEditorDialog(QDialog):
 
     def solve_model(self):
         self._apply_model_changes(solve=True, show_progress=True)
+        self.mark_edited()
+
+    def save_as_pas(self):
+        model = self._apply_model_changes(solve=False, show_progress=False)
+        if model is None:
+            return
+
+        name = self.le_name.text()
+        default_filename = f"{name}.pas" if name else "model.pas"
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self,
+            _tr("Save Model as pas-file"),
+            default_filename,
+            "Pastas Files (*.pas);;All Files (*)",
+        )
+
+        if filename:
+            try:
+                model.to_file(filename)
+                QMessageBox.information(
+                    self,
+                    _tr("Success"),
+                    _tr("Model successfully saved to:\n{}").format(filename)
+                )
+            except Exception as e:
+                QMessageBox.critical(
+                    self,
+                    _tr("Error"),
+                    _tr("Failed to save model: {}").format(str(e))
+                )
 
     def get_model_data(self):
         name = self.le_name.text()
@@ -949,3 +1073,22 @@ class ModelEditorDialog(QDialog):
             self.new_model.name = name
             return self.new_model, name
         return self.original_model, name
+
+    def reject(self):
+        if self._edited:
+            reply = QMessageBox.question(
+                self,
+                _tr("Cancel Editing"),
+                _tr("All edits will be lost. Are you sure you want to cancel?"),
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                super(ModelEditorDialog, self).reject()
+        else:
+            super(ModelEditorDialog, self).reject()
+
+    def mark_edited(self):
+        if getattr(self, "_is_populating", False):
+            return
+        self._edited = True

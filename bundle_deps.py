@@ -27,7 +27,7 @@ DEFAULT_PACKAGES = [
     "pastastore @ git+https://github.com/pastas/pastastore@dev",
     "pastas @ git+https://github.com/pastas/pastas@dev",
     "pyqtgraph",
-    "brodata @ git+https://github.com/ArtesiaWater/brodata@dev",
+    "brodata==0.1.8",
     "hydropandas @ git+https://github.com/ArtesiaWater/hydropandas@96c55a6db0cbb22e643917aeadfc8e079a310328",
 ]
 

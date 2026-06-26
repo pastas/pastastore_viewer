@@ -1,3 +1,16 @@
+from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QComboBox,
+    QSizePolicy,
+    QDialogButtonBox,
+    QMessageBox,
+    QDialog,
+    QMenu,
+)
+
 # -*- coding: utf-8 -*-
 # Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
 # This software is proprietary. See LICENSE.md for details.
@@ -75,18 +88,7 @@ from .bro_import_dialog import BROImportDialog
 from .knmi_import_dialog import KNMIImportDialog
 from .bulk_models_dialog import BulkModelsDialog
 from .license_manager import LicenseManager, FEATURE_PRO, FEATURE_PRONL
-from .qt_compat import (
-    DOCK_AREA_RIGHT,
-    DOCK_AREA_BOTTOM,
-    ITEM_IS_SELECTABLE,
-    APPLICATION_MODAL,
-    DISPLAY_ROLE,
-    COLOR_BLUE,
-    COLOR_RED,
-    COLOR_BLACK,
-    SELECTION_BEHAVIOR_SELECT_ROWS,
-    EDIT_TRIGGERS_NONE,
-)
+
 from .i18n_helper import tr as _i18n_tr
 
 
@@ -109,8 +111,8 @@ class LicenseManagerDialog(QDialog):
         self.table.setHorizontalHeaderLabels([_tr("Property"), _tr("Value")])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.setSelectionBehavior(SELECTION_BEHAVIOR_SELECT_ROWS)
-        self.table.setEditTriggers(EDIT_TRIGGERS_NONE)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
 
         # Add rows for each property
@@ -127,7 +129,7 @@ class LicenseManagerDialog(QDialog):
 
         for i, prop in enumerate(properties):
             prop_item = QTableWidgetItem(prop)
-            prop_item.setFlags(prop_item.flags() & ~ITEM_IS_SELECTABLE)
+            prop_item.setFlags(prop_item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
             self.table.setItem(i, 0, prop_item)
 
             value_item = QTableWidgetItem("")
@@ -227,14 +229,14 @@ class PastastoreViewer:
 
     def _normalize_message_level(self, level):
         if level is None:
-            return Qgis.Info
+            return Qgis.MessageLevel.Info
         if isinstance(level, int):
             return {
-                0: Qgis.Success,
-                1: Qgis.Warning,
-                2: Qgis.Critical,
-                3: Qgis.Info,
-            }.get(level, Qgis.Info)
+                0: Qgis.MessageLevel.Success,
+                1: Qgis.MessageLevel.Warning,
+                2: Qgis.MessageLevel.Critical,
+                3: Qgis.MessageLevel.Info,
+            }.get(level, Qgis.MessageLevel.Info)
         return level
 
     def _push_message(self, title, text, level=None, duration=5):
@@ -247,11 +249,11 @@ class PastastoreViewer:
             try:
                 return bar.pushMessage(title, text, msg_level)
             except TypeError:
-                if msg_level == Qgis.Critical:
+                if msg_level == Qgis.MessageLevel.Critical:
                     return bar.pushCritical(title, text)
-                if msg_level == Qgis.Warning:
+                if msg_level == Qgis.MessageLevel.Warning:
                     return bar.pushWarning(title, text)
-                if msg_level == Qgis.Success and hasattr(bar, "pushSuccess"):
+                if msg_level == Qgis.MessageLevel.Success and hasattr(bar, "pushSuccess"):
                     return bar.pushSuccess(title, text)
                 return bar.pushInfo(title, text)
 
@@ -292,6 +294,10 @@ class PastastoreViewer:
 
         self._update_license_ui()
 
+        # Defer online license validation at startup to prevent blocking QGIS main thread
+        from qgis.PyQt.QtCore import QTimer
+        QTimer.singleShot(1000, lambda: self.validate_license_online(silent=True))
+
     def unload(self):
         if not self._prompt_save_if_needed(allow_cancel=True):
             return
@@ -318,7 +324,7 @@ class PastastoreViewer:
         main_dock_created = False
         if not self.dock_widget:
             self.dock_widget = PastastoreMainDock(self.iface.mainWindow())
-            self.iface.addDockWidget(DOCK_AREA_RIGHT, self.dock_widget)
+            self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_widget)
             main_dock_created = True
 
             # Connect dock signals
@@ -366,7 +372,7 @@ class PastastoreViewer:
 
         if not self.plot_dock:
             self.plot_dock = PastastorePlotDock(self.iface.mainWindow())
-            self.iface.addDockWidget(DOCK_AREA_BOTTOM, self.plot_dock)
+            self.iface.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.plot_dock)
 
             # Connect plot dock visibility signal if needed
             self.plot_dock.visibilityChanged.connect(
@@ -481,10 +487,10 @@ class PastastoreViewer:
             self.iface.mainWindow(),
             "Deactivate license",
             "Deactivate this machine and remove the local license?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             return
 
         success, message = self.license_manager.deactivate()
@@ -571,21 +577,21 @@ class PastastoreViewer:
         if not self._should_prompt_save():
             return True
 
-        buttons = QMessageBox.Yes | QMessageBox.No
+        buttons = QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         if allow_cancel:
-            buttons |= QMessageBox.Cancel
+            buttons |= QMessageBox.StandardButton.Cancel
 
         reply = QMessageBox.question(
             self.iface.mainWindow(),
             "Save Pastastore",
             self._get_save_prompt_text(),
             buttons,
-            QMessageBox.Yes,
+            QMessageBox.StandardButton.Yes,
         )
-        if allow_cancel and reply == QMessageBox.Cancel:
+        if allow_cancel and reply == QMessageBox.StandardButton.Cancel:
             return False
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.save_pastastore()
             if self._should_prompt_save():
                 return False
@@ -603,7 +609,7 @@ class PastastoreViewer:
             current_crs=self.dock_widget.crs_epsg,
             current_zoom=self.dock_widget.auto_zoom,
         )
-        if dlg.exec_():
+        if dlg.exec():
             settings = dlg.get_settings()
             self.dock_widget.x_col = settings["x"]
             self.dock_widget.y_col = settings["y"]
@@ -638,10 +644,10 @@ class PastastoreViewer:
                 choice.setText(
                     "A pastastore is already loaded. Do you want to replace it or merge the new data?"
                 )
-                replace_btn = choice.addButton("Replace", QMessageBox.AcceptRole)
-                merge_btn = choice.addButton("Merge", QMessageBox.ActionRole)
-                choice.addButton(QMessageBox.Cancel)
-                choice.exec_()
+                replace_btn = choice.addButton("Replace", QMessageBox.ButtonRole.AcceptRole)
+                merge_btn = choice.addButton("Merge", QMessageBox.ButtonRole.ActionRole)
+                choice.addButton(QMessageBox.StandardButton.Cancel)
+                choice.exec()
 
                 if choice.clickedButton() == merge_btn:
                     self._merge_from_path(filename)
@@ -669,10 +675,10 @@ class PastastoreViewer:
                 self.iface.mainWindow(),
                 "Create New Pastastore",
                 "A pastastore is already loaded. Create a new empty pastastore and replace the current one?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            if reply != QMessageBox.Yes:
+            if reply != QMessageBox.StandardButton.Yes:
                 return
 
         self._initialize_in_memory_store(notify=True)
@@ -753,7 +759,7 @@ class PastastoreViewer:
                 "Saving pastastore...", None, 0, 0, self.iface.mainWindow()
             )
             busy.setWindowTitle("Please wait")
-            busy.setWindowModality(APPLICATION_MODAL)
+            busy.setWindowModality(Qt.WindowModality.ApplicationModal)
             busy.setMinimumDuration(0)
             busy.setCancelButton(None)
             busy.show()
@@ -793,7 +799,7 @@ class PastastoreViewer:
                 "Loading pastastore...", None, 0, 0, self.iface.mainWindow()
             )
             busy.setWindowTitle("Please wait")
-            busy.setWindowModality(APPLICATION_MODAL)
+            busy.setWindowModality(Qt.WindowModality.ApplicationModal)
             busy.setMinimumDuration(0)
             busy.setCancelButton(None)
             busy.show()
@@ -850,7 +856,7 @@ class PastastoreViewer:
             "Merging pastastore...", None, 0, 0, self.iface.mainWindow()
         )
         busy.setWindowTitle("Please wait")
-        busy.setWindowModality(APPLICATION_MODAL)
+        busy.setWindowModality(Qt.WindowModality.ApplicationModal)
         busy.setMinimumDuration(0)
         busy.setCancelButton(None)
         busy.show()
@@ -1087,11 +1093,11 @@ class PastastoreViewer:
             from qgis.PyQt.QtGui import QColor
 
             colors = {
-                "oseries": COLOR_BLUE,
-                "stresses": COLOR_RED,
+                "oseries": Qt.GlobalColor.blue,
+                "stresses": Qt.GlobalColor.red,
                 "models": QColor(0, 128, 0),
             }
-            color = colors.get(layer_name, COLOR_BLACK)
+            color = colors.get(layer_name, Qt.GlobalColor.black)
             symbol.setColor(color)
 
             if layer_name == "oseries":
@@ -1271,10 +1277,10 @@ class PastastoreViewer:
                 self.iface.mainWindow(),
                 "Many Items Selected",
                 f"You have selected {len(names)} {category}. Do you want to plot them?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            if reply == QMessageBox.No:
+            if reply == QMessageBox.StandardButton.No:
                 if self.plot_dock:
                     self.plot_dock.clear_plot(category=category)
                 return
@@ -1329,11 +1335,11 @@ class PastastoreViewer:
             self.iface.mainWindow(),
             "Confirm Deletion",
             f"Are you sure you want to delete {len(names)} model(s)?\n\n{', '.join(names)}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             try:
                 # 1. Delete from store
                 self.store.del_models(names)
@@ -1374,11 +1380,11 @@ class PastastoreViewer:
             self.iface.mainWindow(),
             "Confirm Deletion",
             message,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             try:
                 # Delete from store
                 for name in names:
@@ -1420,11 +1426,11 @@ class PastastoreViewer:
             self.iface.mainWindow(),
             "Confirm Deletion",
             message,
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             try:
                 # Delete from store
                 for name in names:
@@ -1468,7 +1474,7 @@ class PastastoreViewer:
                 dlg = ModelEditorDialog(
                     ml, self.store, self.iface.mainWindow(), can_solve=can_solve
                 )
-                if not dlg.exec_():
+                if not dlg.exec():
                     # User closed the editor without saving
                     return
 
@@ -1480,11 +1486,11 @@ class PastastoreViewer:
                         self.iface.mainWindow(),
                         "Model Exists",
                         f"A model named '{new_name}' already exists. Overwrite it?",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.No,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
                     )
 
-                    if overwrite == QMessageBox.No:
+                    if overwrite == QMessageBox.StandardButton.No:
                         # Ask for new name
                         rename_cancelled = False
                         while True:
@@ -1577,7 +1583,7 @@ class PastastoreViewer:
                 oseries_name, modelname=model_name, add_recharge=add_recharge
             )
             dlg = ModelEditorDialog(model, self.store, self.iface.mainWindow())
-            if dlg.exec_():
+            if dlg.exec():
                 new_model, new_name = dlg.get_model_data()
                 self.store.add_model(new_model, overwrite=True)
                 self.store_modified = True
@@ -1614,7 +1620,7 @@ class PastastoreViewer:
             return
 
         dlg = BulkModelsDialog(oseries_names, self.store, self.iface.mainWindow())
-        if not dlg.exec_():
+        if not dlg.exec():
             return
 
         options = dlg.get_options()
@@ -1766,7 +1772,7 @@ class PastastoreViewer:
             f"Computing {stat}…", "Cancel", 0, n, self.iface.mainWindow()
         )
         progress.setWindowTitle("Please wait")
-        progress.setWindowModality(APPLICATION_MODAL)
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
         QApplication.processEvents()
@@ -1840,7 +1846,7 @@ class PastastoreViewer:
             f"Computing {label}…", "Cancel", 0, n, self.iface.mainWindow()
         )
         progress.setWindowTitle("Please wait")
-        progress.setWindowModality(APPLICATION_MODAL)
+        progress.setWindowModality(Qt.WindowModality.ApplicationModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
         QApplication.processEvents()
@@ -1857,7 +1863,7 @@ class PastastoreViewer:
                     if name_item and val_item:
                         try:
                             cached_values[name_item.text()] = float(
-                                val_item.data(DISPLAY_ROLE)
+                                val_item.data(Qt.ItemDataRole.DisplayRole)
                             )
                         except (TypeError, ValueError):
                             pass
@@ -1996,7 +2002,7 @@ class PastastoreViewer:
         renderer.setClassAttribute("value")
         renderer.setSourceColorRamp(color_ramp)
         n_classes = min(7, len(records_with_size))
-        renderer.updateClasses(vl, QgsGraduatedSymbolRenderer.Quantile, n_classes)
+        renderer.updateClasses(vl, QgsGraduatedSymbolRenderer.Mode.Quantile, n_classes)
         renderer.updateColorRamp(color_ramp)
         # Apply data-defined size override on every class symbol.
         # range_obj.symbol() returns a clone, so we must clone → modify → updateRangeSymbol.
@@ -2006,7 +2012,7 @@ class PastastoreViewer:
             sym.setSize(BASE_SIZE)
             sl = sym.symbolLayer(0)
             if sl:
-                sl.setDataDefinedProperty(QgsSymbolLayer.PropertySize, size_prop)
+                sl.setDataDefinedProperty(QgsSymbolLayer.Property.PropertySize, size_prop)
             renderer.updateRangeSymbol(i, sym)
         vl.setRenderer(renderer)
 
@@ -2018,7 +2024,7 @@ class PastastoreViewer:
         # QGIS 4: placement expects Qgis.LabelPlacement; QGIS 3: QgsPalLayerSettings.OverPoint
         _over_point = (
             getattr(getattr(Qgis, "LabelPlacement", None), "OverPoint", None)
-            or QgsPalLayerSettings.OverPoint
+            or QgsPalLayerSettings.PredefinedPointPosition.OverPoint
         )
         label_settings.placement = _over_point
         tf = QgsTextFormat()
@@ -2026,11 +2032,11 @@ class PastastoreViewer:
         # Data-defined quadrant and XY offset so labels sit outside their circle
         dp = label_settings.dataDefinedProperties()
         dp.setProperty(
-            QgsPalLayerSettings.OffsetQuad,
+            QgsPalLayerSettings.Property.OffsetQuad,
             QgsProperty.fromField("lbl_quadrant"),
         )
         dp.setProperty(
-            QgsPalLayerSettings.OffsetXY,
+            QgsPalLayerSettings.Property.OffsetXY,
             QgsProperty.fromExpression('"lbl_off_x" || \',\' || "lbl_off_y"'),
         )
         label_settings.setDataDefinedProperties(dp)
@@ -2112,10 +2118,10 @@ class PastastoreViewer:
                         self.iface.mainWindow(),
                         "Many Models Selected",
                         f"This will select {len(matching_models)} models. Continue?",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.No,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
                     )
-                    if reply == QMessageBox.No:
+                    if reply == QMessageBox.StandardButton.No:
                         return
 
                 self.dock_widget.select_items_in_list("models", matching_models)
@@ -2204,10 +2210,10 @@ class PastastoreViewer:
                         self.iface.mainWindow(),
                         "Many Models Selected",
                         f"This will select {len(matching_models)} models. Continue?",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.No,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
                     )
-                    if reply == QMessageBox.No:
+                    if reply == QMessageBox.StandardButton.No:
                         return
 
                 self.dock_widget.select_items_in_list("models", matching_models)
@@ -2245,10 +2251,10 @@ class PastastoreViewer:
                         self.iface.mainWindow(),
                         "Many Oseries Selected",
                         f"This will select {len(matching_oseries)} oseries. Continue?",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.No,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
                     )
-                    if reply == QMessageBox.No:
+                    if reply == QMessageBox.StandardButton.No:
                         return
 
                 self.dock_widget.select_items_in_list("oseries", matching_oseries)
@@ -2312,10 +2318,10 @@ class PastastoreViewer:
                         self.iface.mainWindow(),
                         "Many Stresses Selected",
                         f"This will select {len(matching_stresses)} stresses. Continue?",
-                        QMessageBox.Yes | QMessageBox.No,
-                        QMessageBox.No,
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No,
                     )
-                    if reply == QMessageBox.No:
+                    if reply == QMessageBox.StandardButton.No:
                         return
 
                 self.dock_widget.select_items_in_list("stresses", matching_stresses)
@@ -2347,7 +2353,7 @@ class PastastoreViewer:
                 oseries_name, series_data, self.iface.mainWindow()
             )
 
-            if dlg.exec_():
+            if dlg.exec():
                 # Get modified series
                 modified_series = dlg.get_modified_series()
 

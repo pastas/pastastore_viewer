@@ -115,7 +115,7 @@ class TestLicenseManager:
         lm = LicenseManager(temp_dir, "0.1")
         status = lm.status_text()
         assert "Free" in status
-        assert "No license" in status
+        assert "No local license settings" in status
 
     def test_status_text_with_valid_license(self, temp_dir):
         """Test status_text with a valid license state."""

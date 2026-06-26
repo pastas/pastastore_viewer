@@ -1,3 +1,16 @@
+from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QComboBox,
+    QSizePolicy,
+    QDialogButtonBox,
+    QMessageBox,
+    QDialog,
+    QMenu,
+)
+
 # -*- coding: utf-8 -*-
 
 from qgis.PyQt.QtWidgets import (
@@ -13,17 +26,18 @@ from qgis.PyQt.QtWidgets import (
     QComboBox,
     QSplitter,
     QGroupBox,
-    QRadioButton,
-    QButtonGroup,
     QCheckBox,
     QProgressDialog,
     QListWidget,
     QApplication,
     QFileDialog,
+    QTabWidget,
+    QWidget,
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QColor
 from qgis.core import (
+    Qgis,
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
     QgsPointXY,
@@ -34,16 +48,7 @@ from qgis.core import (
 from qgis.gui import QgsMapTool, QgsRubberBand
 import pandas as pd
 import numpy as np
-from .qt_compat import (
-    MOUSE_BUTTON_RIGHT,
-    MOUSE_BUTTON_LEFT,
-    WINDOW_MAXIMIZE_BUTTON_HINT,
-    ORIENTATION_HORIZONTAL,
-    WINDOW_MODAL,
-    SELECTION_BEHAVIOR_SELECT_ROWS,
-    SELECTION_MODE_EXTENDED,
-    HEADER_RESIZE_INTERACTIVE,
-)
+
 from .i18n_helper import tr as _i18n_tr
 
 
@@ -77,20 +82,20 @@ class BROMapExtentTool(QgsMapTool):
         self.on_canceled = on_canceled
         self.start_point = None
         self.end_point = None
-        self.rubber_band = QgsRubberBand(canvas, QgsWkbTypes.PolygonGeometry)
+        self.rubber_band = QgsRubberBand(canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
         self.rubber_band.setColor(QColor(31, 119, 180, 120))
         self.rubber_band.setStrokeColor(QColor(31, 119, 180, 220))
         self.rubber_band.setWidth(2)
         self.rubber_band.hide()
 
     def canvasPressEvent(self, event):
-        if event.button() == MOUSE_BUTTON_RIGHT:
+        if event.button() == Qt.MouseButton.RightButton:
             self._clear()
             if self.on_canceled:
                 self.on_canceled()
             return
 
-        if event.button() != MOUSE_BUTTON_LEFT:
+        if event.button() != Qt.MouseButton.LeftButton:
             return
 
         self.start_point = self.toMapCoordinates(event.pos())
@@ -105,7 +110,7 @@ class BROMapExtentTool(QgsMapTool):
         self._update_rubber_band()
 
     def canvasReleaseEvent(self, event):
-        if event.button() != MOUSE_BUTTON_LEFT or self.start_point is None:
+        if event.button() != Qt.MouseButton.LeftButton or self.start_point is None:
             return
 
         self.end_point = self.toMapCoordinates(event.pos())
@@ -124,7 +129,7 @@ class BROMapExtentTool(QgsMapTool):
             return
 
         rect = self._normalized_rect(self.start_point, self.end_point)
-        self.rubber_band.reset(QgsWkbTypes.PolygonGeometry)
+        self.rubber_band.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
         self.rubber_band.addPoint(QgsPointXY(rect.xMinimum(), rect.yMinimum()))
         self.rubber_band.addPoint(QgsPointXY(rect.xMinimum(), rect.yMaximum()))
         self.rubber_band.addPoint(QgsPointXY(rect.xMaximum(), rect.yMaximum()))
@@ -143,7 +148,7 @@ class BROMapExtentTool(QgsMapTool):
         self.start_point = None
         self.end_point = None
         self.rubber_band.hide()
-        self.rubber_band.reset(QgsWkbTypes.PolygonGeometry)
+        self.rubber_band.reset(QgsWkbTypes.GeometryType.PolygonGeometry)
 
 
 class BROImportDialog(QDialog):
@@ -164,7 +169,6 @@ class BROImportDialog(QDialog):
             "qualifier": [],
             "observation_type": [],
         }
-        self._series_filter_selection = {}
         self.selection_mode = "id"  # "id" or "map"
         self.download_format = "csv"  # "xml" or "csv"
         self.progress_dialog = None  # Progress dialog for downloads
@@ -173,8 +177,8 @@ class BROImportDialog(QDialog):
         self._restore_dialog_after_map_select = False
 
         self.setWindowTitle(_tr("Import from BRO"))
-        self.setWindowFlags(self.windowFlags() | WINDOW_MAXIMIZE_BUTTON_HINT)
-        self.resize(1200, 800)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowMaximizeButtonHint)
+        self.resize(1200, 900)
 
         if not HAS_BRODATA:
             QMessageBox.warning(
@@ -189,34 +193,40 @@ class BROImportDialog(QDialog):
     def setup_ui(self):
         layout = QVBoxLayout()
 
-        # Input method selection
+        # Input method selection (TabWidget instead of radio buttons)
         input_group = QGroupBox(_tr("Data Source"))
         input_layout = QVBoxLayout()
 
-        # Radio buttons for selection method
-        radio_layout = QHBoxLayout()
-        self.btn_group = QButtonGroup()
-        self.radio_id = QRadioButton(_tr("By ID"))
-        self.radio_map = QRadioButton(_tr("By Map Selection"))
-        self.radio_id.setChecked(True)
-        self.btn_group.addButton(self.radio_id)
-        self.btn_group.addButton(self.radio_map)
-        self.radio_id.toggled.connect(self._on_selection_mode_changed)
-        radio_layout.addWidget(self.radio_id)
-        radio_layout.addWidget(self.radio_map)
-        radio_layout.addStretch()
-        input_layout.addLayout(radio_layout)
+        self.input_tabs = QTabWidget()
 
-        # ID input
-        id_layout = QHBoxLayout()
-        id_layout.addWidget(QLabel(_tr("ID:")))
+        # Tab 1: By ID
+        tab_id = QWidget()
+        tab_id_layout = QHBoxLayout()
+        tab_id_layout.setContentsMargins(4, 4, 4, 4)
+        tab_id_layout.addWidget(QLabel(_tr("ID:")))
         self.le_id = QLineEdit()
         self.le_id.setPlaceholderText(_tr("Enter GMN-ID, GMW-ID, Well Code, or GLD-ID"))
-        id_layout.addWidget(self.le_id)
+        tab_id_layout.addWidget(self.le_id)
         self.btn_download = QPushButton(_tr("Download"))
         self.btn_download.clicked.connect(self._download_by_id)
-        id_layout.addWidget(self.btn_download)
-        input_layout.addLayout(id_layout)
+        tab_id_layout.addWidget(self.btn_download)
+        tab_id.setLayout(tab_id_layout)
+
+        # Tab 2: By Map Selection
+        tab_map = QWidget()
+        tab_map_layout = QHBoxLayout()
+        tab_map_layout.setContentsMargins(4, 4, 4, 4)
+        self.btn_map_select = QPushButton(_tr("Select Area on Map"))
+        self.btn_map_select.clicked.connect(self._select_from_map)
+        tab_map_layout.addWidget(self.btn_map_select)
+        tab_map_layout.addStretch()
+        tab_map.setLayout(tab_map_layout)
+
+        self.input_tabs.addTab(tab_id, _tr("By ID"))
+        self.input_tabs.addTab(tab_map, _tr("By Map Selection"))
+        self.input_tabs.currentChanged.connect(self._on_tab_mode_changed)
+
+        input_layout.addWidget(self.input_tabs)
 
         # Format selection
         format_layout = QHBoxLayout()
@@ -240,39 +250,27 @@ class BROImportDialog(QDialog):
         path_layout.addWidget(self.btn_browse_path)
         input_layout.addLayout(path_layout)
 
-        # Map selection button
-        map_layout = QHBoxLayout()
-        self.btn_map_select = QPushButton(_tr("Select Area on Map"))
-        self.btn_map_select.setEnabled(False)
-        self.btn_map_select.clicked.connect(self._select_from_map)
-        map_layout.addWidget(self.btn_map_select)
-        map_layout.addStretch()
-        input_layout.addLayout(map_layout)
-
         input_group.setLayout(input_layout)
-        layout.addWidget(input_group)
+        layout.addWidget(input_group, 0)
 
-        # Main splitter for series list and plot
-        splitter = QSplitter(ORIENTATION_HORIZONTAL)
-
-        # Left side: Series list with metadata selection
-        left_widget = QGroupBox(_tr("Downloaded Series"))
-        left_layout = QVBoxLayout()
+        # Series list group box (full width, stretches horizontally)
+        series_group = QGroupBox(_tr("Downloaded Series"))
+        series_layout = QVBoxLayout()
 
         # Series table
         self.table_series = QTableWidget()
-        self.table_series.setColumnCount(6)
+        self.table_series.setColumnCount(8)
         self.table_series.setHorizontalHeaderLabels(
-            ["Select", "Name", "Location", "Count", "Start", "End"]
+            ["Select", "Name", "Location", "Screen Top", "Screen Bottom", "Count", "Start", "End"]
         )
         self.table_series.verticalHeader().setVisible(False)
         self.table_series.horizontalHeader().setSectionResizeMode(
-            HEADER_RESIZE_INTERACTIVE
+            QHeaderView.ResizeMode.Interactive
         )
         self.table_series.horizontalHeader().setStretchLastSection(True)
-        self.table_series.setSelectionBehavior(SELECTION_BEHAVIOR_SELECT_ROWS)
+        self.table_series.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table_series.itemSelectionChanged.connect(self._on_series_selected)
-        left_layout.addWidget(self.table_series)
+        series_layout.addWidget(self.table_series)
 
         table_selection_layout = QHBoxLayout()
         self.btn_select_all_locations = QPushButton(_tr("Select All Locations"))
@@ -282,7 +280,13 @@ class BROImportDialog(QDialog):
         self.btn_deselect_all_locations.clicked.connect(self._deselect_all_locations)
         table_selection_layout.addWidget(self.btn_deselect_all_locations)
         table_selection_layout.addStretch()
-        left_layout.addLayout(table_selection_layout)
+        series_layout.addLayout(table_selection_layout)
+
+        series_group.setLayout(series_layout)
+        layout.addWidget(series_group, 3)
+
+        # Bottom split-section: options on the left, preview on the right
+        bottom_splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Global metadata selectors
         metadata_group = QGroupBox(_tr("Metadata Options (Multi-select)"))
@@ -291,7 +295,7 @@ class BROImportDialog(QDialog):
         # Status selector
         metadata_layout.addWidget(QLabel(_tr("Status:")))
         self.list_status = QListWidget()
-        self.list_status.setSelectionMode(SELECTION_MODE_EXTENDED)
+        self.list_status.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list_status.setMaximumHeight(80)
         self.list_status.itemSelectionChanged.connect(self._on_metadata_changed)
         metadata_layout.addWidget(self.list_status)
@@ -299,7 +303,7 @@ class BROImportDialog(QDialog):
         # Qualifier selector
         metadata_layout.addWidget(QLabel(_tr("Qualifier:")))
         self.list_qualifier = QListWidget()
-        self.list_qualifier.setSelectionMode(SELECTION_MODE_EXTENDED)
+        self.list_qualifier.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list_qualifier.setMaximumHeight(80)
         self.list_qualifier.itemSelectionChanged.connect(self._on_metadata_changed)
         metadata_layout.addWidget(self.list_qualifier)
@@ -307,22 +311,15 @@ class BROImportDialog(QDialog):
         # Observation type selector
         metadata_layout.addWidget(QLabel(_tr("Observation Type:")))
         self.list_obs_type = QListWidget()
-        self.list_obs_type.setSelectionMode(SELECTION_MODE_EXTENDED)
+        self.list_obs_type.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list_obs_type.setMaximumHeight(60)
         self.list_obs_type.itemSelectionChanged.connect(self._on_metadata_changed)
         metadata_layout.addWidget(self.list_obs_type)
 
-        # Apply filter changes only to currently selected series
-        self.chk_only_this_series = QCheckBox(_tr("Only for this series"))
-        self.chk_only_this_series.setChecked(False)
-        self.chk_only_this_series.toggled.connect(self._on_only_this_series_toggled)
-        metadata_layout.addWidget(self.chk_only_this_series)
+        # Apply filter changes globally to all series
 
         metadata_group.setLayout(metadata_layout)
-        left_layout.addWidget(metadata_group)
-
-        left_widget.setLayout(left_layout)
-        splitter.addWidget(left_widget)
+        bottom_splitter.addWidget(metadata_group)
 
         # Right side: Plot
         if HAS_PYQTGRAPH:
@@ -344,15 +341,20 @@ class BROImportDialog(QDialog):
 
             right_layout.addWidget(self.plot_widget)
             right_widget.setLayout(right_layout)
-            splitter.addWidget(right_widget)
+            bottom_splitter.addWidget(right_widget)
 
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
-        layout.addWidget(splitter)
+        bottom_splitter.setStretchFactor(0, 1)
+        bottom_splitter.setStretchFactor(1, 2)
+        layout.addWidget(bottom_splitter, 2)
 
         # Bottom buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
+
+        self.btn_download_obs = QPushButton(_tr("Download Selected Observations"))
+        self.btn_download_obs.clicked.connect(self._download_selected_observations)
+        self.btn_download_obs.setEnabled(False)
+        button_layout.addWidget(self.btn_download_obs)
 
         self.btn_add_store = QPushButton(_tr("Add to Store"))
         self.btn_add_store.clicked.connect(self._add_to_store)
@@ -366,19 +368,13 @@ class BROImportDialog(QDialog):
         layout.addLayout(button_layout)
         self.setLayout(layout)
 
-    def _on_selection_mode_changed(self, checked):
-        """Handle selection mode change."""
-        if self.radio_id.isChecked():
+    def _on_tab_mode_changed(self, index):
+        """Handle tab change for selection mode."""
+        if index == 0:
             self.selection_mode = "id"
-            self.le_id.setEnabled(True)
-            self.btn_download.setEnabled(True)
-            self.btn_map_select.setEnabled(False)
             self._stop_map_selection(reset_button=False)
         else:
             self.selection_mode = "map"
-            self.le_id.setEnabled(False)
-            self.btn_download.setEnabled(False)
-            self.btn_map_select.setEnabled(True)
 
     def _on_format_changed(self, format_text):
         """Handle format selection change."""
@@ -408,7 +404,7 @@ class BROImportDialog(QDialog):
             "Downloading data from BRO...", "Cancel", 0, 100, self
         )
         self.progress_dialog.setWindowTitle("BRO Download")
-        self.progress_dialog.setWindowModality(WINDOW_MODAL)
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setValue(0)
         self.progress_dialog.show()
@@ -660,8 +656,7 @@ class BROImportDialog(QDialog):
         finally:
             list_widget.blockSignals(False)
 
-        if not self.chk_only_this_series.isChecked():
-            self._global_filter_selection = self._get_filter_selection_from_lists()
+        self._global_filter_selection = self._get_filter_selection_from_lists()
 
     def _get_filter_selection_from_lists(self):
         return {
@@ -682,63 +677,48 @@ class BROImportDialog(QDialog):
             return None
         return name_item.text()
 
-    def _apply_filter_selection_to_lists(
-        self, filter_selection, select_all_if_empty=True
-    ):
-        mapping = [
-            (self.list_status, set(filter_selection.get("status", []))),
-            (self.list_qualifier, set(filter_selection.get("qualifier", []))),
-            (self.list_obs_type, set(filter_selection.get("observation_type", []))),
+    def _filter_dataframe(self, df):
+        """Filter a DataFrame based on selected status, qualifier, and observation type."""
+        if df is None or not hasattr(df, "columns"):
+            return df
+
+        # Get selected filter values from lists
+        selected_status = [item.text() for item in self.list_status.selectedItems()]
+        selected_qualifier = [
+            item.text() for item in self.list_qualifier.selectedItems()
+        ]
+        selected_obs_type = [
+            item.text() for item in self.list_obs_type.selectedItems()
         ]
 
-        for list_widget, selected_values in mapping:
-            list_widget.blockSignals(True)
-            try:
-                for i in range(list_widget.count()):
-                    item = list_widget.item(i)
-                    if select_all_if_empty and not selected_values:
-                        item.setSelected(True)
-                    else:
-                        item.setSelected(item.text() in selected_values)
-            finally:
-                list_widget.blockSignals(False)
-
-    def _get_filters_for_series(self, series_name):
-        return self._series_filter_selection.get(
-            series_name,
-            self._global_filter_selection,
-        )
+        filtered_df = df.copy()
+        if "status" in df.columns and selected_status:
+            filtered_df = filtered_df[filtered_df["status"].isin(selected_status)]
+        if "qualifier" in df.columns and selected_qualifier:
+            filtered_df = filtered_df[
+                filtered_df["qualifier"].isin(selected_qualifier)
+            ]
+        if "observation_type" in df.columns and selected_obs_type:
+            filtered_df = filtered_df[
+                filtered_df["observation_type"].isin(selected_obs_type)
+            ]
+        return filtered_df
 
     def _select_all_locations(self):
         for i in range(self.table_series.rowCount()):
             chk = self.table_series.cellWidget(i, 0)
             if chk:
                 chk.setChecked(True)
+        self._update_button_states()
 
     def _deselect_all_locations(self):
         for i in range(self.table_series.rowCount()):
             chk = self.table_series.cellWidget(i, 0)
             if chk:
                 chk.setChecked(False)
+        self._update_button_states()
 
-    def _on_only_this_series_toggled(self, checked):
-        series_name = self._get_current_series_name()
-        if not series_name:
-            return
 
-        if checked:
-            if series_name not in self._series_filter_selection:
-                self._series_filter_selection[series_name] = (
-                    self._get_filter_selection_from_lists()
-                )
-        else:
-            self._apply_filter_selection_to_lists(
-                self._global_filter_selection,
-                select_all_if_empty=True,
-            )
-
-        if series_name in self.downloaded_data:
-            self._plot_series(series_name)
 
     def _download_gld(self, gld_id, update_progress=True):
         """Download GLD (Groundwater Level Dossier) data."""
@@ -847,7 +827,7 @@ class BROImportDialog(QDialog):
             self.iface.messageBar().pushMessage(
                 "BRO Import",
                 "Draw a rectangle on the map to select BRO wells. Right-click to cancel.",
-                level=0,
+                level=Qgis.MessageLevel.Info,
             )
 
     def _on_map_extent_canceled(self):
@@ -864,7 +844,7 @@ class BROImportDialog(QDialog):
             self.iface.messageBar().pushMessage(
                 "BRO Import",
                 f"Selected extent (RD): {extent_rd}",
-                level=0,
+                level=Qgis.MessageLevel.Info,
             )
             self._download_from_extent(extent_rd)
         except Exception as e:
@@ -956,10 +936,10 @@ class BROImportDialog(QDialog):
         use_csv = self.download_format == "csv"
 
         self.progress_dialog = QProgressDialog(
-            "Downloading data from selected map extent...", "Cancel", 0, 100, self
+            "Querying locations in selected map extent...", "Cancel", 0, 100, self
         )
-        self.progress_dialog.setWindowTitle("BRO Extent Download")
-        self.progress_dialog.setWindowModality(WINDOW_MODAL)
+        self.progress_dialog.setWindowTitle("BRO Extent Query")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setValue(5)
         self.progress_dialog.show()
@@ -979,16 +959,8 @@ class BROImportDialog(QDialog):
 
             if hasattr(brodata, "gm") and hasattr(brodata.gm, "get_data_in_extent"):
                 gdf = brodata.gm.get_data_in_extent(
-                    extent,
-                    as_csv=use_csv,
-                    to_path=to_path,
-                    silent=True,
-                    progress_callback=self._on_extent_download_progress,
-                )
-            elif hasattr(brodata, "gmw") and hasattr(brodata.gmw, "get_data_in_extent"):
-                gdf = brodata.gmw.get_data_in_extent(
                     extent=extent,
-                    kind="gld",
+                    kind=None,  # First query metadata only
                     combine=True,
                     as_csv=use_csv,
                     to_path=to_path,
@@ -997,7 +969,7 @@ class BROImportDialog(QDialog):
                 )
             else:
                 raise Exception(
-                    "brodata extent API is not available. Update brodata to a newer version."
+                    "brodata.gm.get_data_in_extent is not available. Update brodata to a newer version."
                 )
 
             if self.progress_dialog and self.progress_dialog.wasCanceled():
@@ -1007,13 +979,13 @@ class BROImportDialog(QDialog):
                 QMessageBox.information(
                     self,
                     "No Data",
-                    "No BRO monitoring tubes with observations were found in the selected area.",
+                    "No BRO monitoring tubes were found in the selected area.",
                 )
                 return
 
             if self.progress_dialog:
                 self.progress_dialog.setLabelText(
-                    "Processing downloaded observations..."
+                    "Processing found monitoring tubes..."
                 )
                 self.progress_dialog.setValue(100)
                 QApplication.processEvents()
@@ -1027,17 +999,22 @@ class BROImportDialog(QDialog):
 
             self._refresh_metadata_filter_lists(select_all=False)
             self._update_series_table()
-            self.btn_add_store.setEnabled(len(self.downloaded_data) > 0)
+
+            # Plot locations on QGIS map
+            self._plot_locations_on_map()
+
+            # Update button states
+            self._update_button_states()
 
             QMessageBox.information(
                 self,
-                "Extent Download Complete",
-                f"Downloaded {added} series from the selected map extent.",
+                "Extent Query Complete",
+                f"Found {added} locations in the selected map extent. You can now select locations and download observations.",
             )
         except self._ExtentDownloadCanceled:
             return
         except Exception as e:
-            raise Exception(f"Failed to download data for selected extent: {str(e)}")
+            raise Exception(f"Failed to query data for selected extent: {str(e)}")
         finally:
             if self.progress_dialog:
                 self.progress_dialog.setValue(100)
@@ -1046,17 +1023,18 @@ class BROImportDialog(QDialog):
 
     def _ingest_extent_gdf(self, gdf):
         added = 0
+        
+        # Reset the index of the geodataframe so that index columns
+        # (like gmw_bro_id and tube_number) are normal columns
+        gdf_reset = gdf.reset_index()
 
-        for idx, row in gdf.iterrows():
-            observation = row.get("observation")
-            if observation is None:
-                continue
-            if hasattr(observation, "empty") and observation.empty:
-                continue
+        for idx, row in gdf_reset.iterrows():
+            observation = row.get("observation") if "observation" in row else None
+            # Do NOT skip if observation is None for two-step download
 
-            gmw_id = row.get("groundwaterMonitoringWell")
-            tube_number = row.get("tubeNumber")
-            gld_ids = row.get("groundwaterLevelDossier")
+            gmw_id = row.get("gmw_bro_id") if "gmw_bro_id" in row else row.get("groundwaterMonitoringWell")
+            tube_number = row.get("tube_number") if "tube_number" in row else row.get("tubeNumber")
+            gld_ids = row.get("groundwaterLevelDossier") if "groundwaterLevelDossier" in row else row.get("gld_bro_id")
 
             if isinstance(gld_ids, (list, tuple)) and len(gld_ids) > 0:
                 base_name = str(gld_ids[0])
@@ -1070,7 +1048,21 @@ class BROImportDialog(QDialog):
             series_name = self._unique_series_name(base_name)
             self.downloaded_data[series_name] = observation
 
+            # Add all columns of the row to metadata
             metadata = {}
+            for col in gdf_reset.columns:
+                if col not in ["observation", "geometry"]:
+                    val = row[col]
+                    if pd.isna(val):
+                        metadata[col] = None
+                    elif isinstance(val, (list, tuple, np.ndarray)):
+                        metadata[col] = list(val)
+                    elif hasattr(val, "item"):  # numpy types
+                        metadata[col] = val.item()
+                    else:
+                        metadata[col] = val
+
+            # Keep/ensure specific compatibility keys are present
             if gmw_id is not None:
                 metadata["GMW"] = gmw_id
             if tube_number is not None:
@@ -1113,8 +1105,24 @@ class BROImportDialog(QDialog):
             i += 1
         return f"{name}_{i}"
 
+    def _remove_temporary_layer(self):
+        if not self.iface:
+            return
+        existing_layers = QgsProject.instance().mapLayersByName("BRO Wells")
+        for layer in existing_layers:
+            QgsProject.instance().removeMapLayer(layer.id())
+
+    def accept(self):
+        self._remove_temporary_layer()
+        super(BROImportDialog, self).accept()
+
+    def reject(self):
+        self._remove_temporary_layer()
+        super(BROImportDialog, self).reject()
+
     def closeEvent(self, event):
         self._stop_map_selection(reset_button=False)
+        self._remove_temporary_layer()
         super(BROImportDialog, self).closeEvent(event)
 
     def _update_series_table(self):
@@ -1127,6 +1135,7 @@ class BROImportDialog(QDialog):
             # Select checkbox
             chk = QCheckBox()
             chk.setChecked(True)
+            chk.toggled.connect(self._update_button_states)
             self.table_series.setCellWidget(i, 0, chk)
 
             # Name
@@ -1139,20 +1148,44 @@ class BROImportDialog(QDialog):
             location = f"{x}, {y}" if x and y else ""
             self.table_series.setItem(i, 2, QTableWidgetItem(location))
 
-            # Count
-            count = len(df)
-            self.table_series.setItem(i, 3, QTableWidgetItem(str(count)))
+            # Screen Top & Screen Bottom
+            screen_top = metadata.get("screen_top_position")
+            if screen_top is None:
+                screen_top = metadata.get("screenTopPosition", "")
+            screen_bottom = metadata.get("screen_bottom_position")
+            if screen_bottom is None:
+                screen_bottom = metadata.get("screenBottomPosition", "")
 
-            # Start and End dates
-            if isinstance(df.index, pd.DatetimeIndex):
-                start = df.index[0].strftime("%Y-%m-%d") if len(df) > 0 else ""
-                end = df.index[-1].strftime("%Y-%m-%d") if len(df) > 0 else ""
+            def _format_pos(val):
+                if val is None or val == "":
+                    return ""
+                try:
+                    return f"{float(val):.2f}"
+                except (ValueError, TypeError):
+                    return str(val)
+
+            self.table_series.setItem(i, 3, QTableWidgetItem(_format_pos(screen_top)))
+            self.table_series.setItem(i, 4, QTableWidgetItem(_format_pos(screen_bottom)))
+
+            # Count, Start and End dates
+            if df is not None:
+                count = len(df)
+                if isinstance(df.index, pd.DatetimeIndex):
+                    start = df.index[0].strftime("%Y-%m-%d") if len(df) > 0 else ""
+                    end = df.index[-1].strftime("%Y-%m-%d") if len(df) > 0 else ""
+                else:
+                    start = str(df.index[0]) if len(df) > 0 else ""
+                    end = str(df.index[-1]) if len(df) > 0 else ""
             else:
-                start = str(df.index[0]) if len(df) > 0 else ""
-                end = str(df.index[-1]) if len(df) > 0 else ""
+                count = "-"
+                start = "Not Downloaded"
+                end = "Not Downloaded"
 
-            self.table_series.setItem(i, 4, QTableWidgetItem(start))
-            self.table_series.setItem(i, 5, QTableWidgetItem(end))
+            self.table_series.setItem(i, 5, QTableWidgetItem(str(count)))
+            self.table_series.setItem(i, 6, QTableWidgetItem(start))
+            self.table_series.setItem(i, 7, QTableWidgetItem(end))
+
+        self._update_button_states()
 
     def _on_series_selected(self):
         """Handle series selection to update plot."""
@@ -1173,21 +1206,6 @@ class BROImportDialog(QDialog):
         if series_name not in self.downloaded_data:
             return
 
-        if self.chk_only_this_series.isChecked():
-            filter_selection = self._series_filter_selection.get(series_name)
-            if filter_selection is None:
-                filter_selection = self._global_filter_selection
-                self._series_filter_selection[series_name] = filter_selection.copy()
-            self._apply_filter_selection_to_lists(
-                filter_selection,
-                select_all_if_empty=True,
-            )
-        else:
-            self._apply_filter_selection_to_lists(
-                self._global_filter_selection,
-                select_all_if_empty=True,
-            )
-
         # Plot the series
         self._plot_series(series_name)
 
@@ -1196,10 +1214,7 @@ class BROImportDialog(QDialog):
         current_selection = self._get_filter_selection_from_lists()
 
         series_name = self._get_current_series_name()
-        if self.chk_only_this_series.isChecked() and series_name:
-            self._series_filter_selection[series_name] = current_selection
-        else:
-            self._global_filter_selection = current_selection
+        self._global_filter_selection = current_selection
 
         # Re-plot the currently selected series with new filters
         selected_items = self.table_series.selectedItems()
@@ -1220,29 +1235,10 @@ class BROImportDialog(QDialog):
         self.plot_widget.clear()
 
         try:
-            # Get selected filter values
-            selected_status = [item.text() for item in self.list_status.selectedItems()]
-            selected_qualifier = [
-                item.text() for item in self.list_qualifier.selectedItems()
-            ]
-            selected_obs_type = [
-                item.text() for item in self.list_obs_type.selectedItems()
-            ]
-
             # Filter data if it has the relevant columns
-            filtered_df = df.copy()
-            if "status" in df.columns and selected_status:
-                filtered_df = filtered_df[filtered_df["status"].isin(selected_status)]
-            if "qualifier" in df.columns and selected_qualifier:
-                filtered_df = filtered_df[
-                    filtered_df["qualifier"].isin(selected_qualifier)
-                ]
-            if "observation_type" in df.columns and selected_obs_type:
-                filtered_df = filtered_df[
-                    filtered_df["observation_type"].isin(selected_obs_type)
-                ]
+            filtered_df = self._filter_dataframe(df)
 
-            if len(filtered_df) == 0:
+            if filtered_df is None or len(filtered_df) == 0:
                 self.plot_widget.setTitle(
                     f"Preview: {series_name} (no data)", color="k"
                 )
@@ -1312,7 +1308,7 @@ class BROImportDialog(QDialog):
 
             # Update title with filter info
             filter_info = ""
-            if len(filtered_df) < len(df):
+            if df is not None and len(filtered_df) < len(df):
                 filter_info = f" (Filtered: {len(filtered_df)}/{len(df)} points)"
             self.plot_widget.setTitle(f"Preview: {series_name}{filter_info}", color="k")
 
@@ -1332,13 +1328,17 @@ class BROImportDialog(QDialog):
                     series_name = name_item.text()
                     if series_name in self.downloaded_data:
                         df = self.downloaded_data[series_name]
+                        if df is None:
+                            continue
                         metadata = self.series_metadata.get(series_name, {})
                         metadata = metadata.copy()
 
-                        filter_selection = self._get_filters_for_series(series_name)
-                        metadata["status"] = filter_selection.get("status", [])
-                        metadata["qualifier"] = filter_selection.get("qualifier", [])
-                        metadata["observation_type"] = filter_selection.get(
+                        # Filter the DataFrame based on active selections
+                        df = self._filter_dataframe(df)
+
+                        metadata["status"] = self._global_filter_selection.get("status", [])
+                        metadata["qualifier"] = self._global_filter_selection.get("qualifier", [])
+                        metadata["observation_type"] = self._global_filter_selection.get(
                             "observation_type", []
                         )
 
@@ -1374,13 +1374,17 @@ class BROImportDialog(QDialog):
                     series_name = name_item.text()
                     if series_name in self.downloaded_data:
                         df = self.downloaded_data[series_name]
+                        if df is None:
+                            continue
                         metadata = self.series_metadata.get(series_name, {})
                         metadata = metadata.copy()
 
-                        filter_selection = self._get_filters_for_series(series_name)
-                        metadata["status"] = filter_selection.get("status", [])
-                        metadata["qualifier"] = filter_selection.get("qualifier", [])
-                        metadata["observation_type"] = filter_selection.get(
+                        # Filter the DataFrame based on active selections
+                        df = self._filter_dataframe(df)
+
+                        metadata["status"] = self._global_filter_selection.get("status", [])
+                        metadata["qualifier"] = self._global_filter_selection.get("qualifier", [])
+                        metadata["observation_type"] = self._global_filter_selection.get(
                             "observation_type", []
                         )
 
@@ -1390,3 +1394,185 @@ class BROImportDialog(QDialog):
                         }
 
         return selected_series
+
+    def _update_button_states(self):
+        """Update the enabled states of the Add to Store and Download Observations buttons."""
+        has_undownloaded = False
+        has_downloaded = False
+
+        for row in range(self.table_series.rowCount()):
+            chk = self.table_series.cellWidget(row, 0)
+            if chk and chk.isChecked():
+                name_item = self.table_series.item(row, 1)
+                if name_item:
+                    name = name_item.text()
+                    df = self.downloaded_data.get(name)
+                    if df is None:
+                        has_undownloaded = True
+                    else:
+                        has_downloaded = True
+
+        self.btn_download_obs.setEnabled(has_undownloaded)
+        self.btn_add_store.setEnabled(has_downloaded)
+
+    def _plot_locations_on_map(self):
+        """Plot the found well locations as a temporary memory layer in QGIS."""
+        if not self.iface:
+            return
+
+        from qgis.core import (
+            QgsVectorLayer,
+            QgsFeature,
+            QgsGeometry,
+            QgsField,
+        )
+        from qgis.PyQt.QtCore import QVariant
+
+        # Check if layer already exists and remove it
+        existing_layers = QgsProject.instance().mapLayersByName("BRO Wells")
+        for layer in existing_layers:
+            QgsProject.instance().removeMapLayer(layer.id())
+
+        # Create new memory layer in EPSG:28992 (RD New)
+        layer = QgsVectorLayer("Point?crs=EPSG:28992", "BRO Wells", "memory")
+        provider = layer.dataProvider()
+
+        provider.addAttributes([
+            QgsField("Name", QVariant.String),
+            QgsField("GMW", QVariant.String),
+            QgsField("Tube", QVariant.String),
+        ])
+        layer.updateFields()
+
+        features = []
+        for name, metadata in self.series_metadata.items():
+            x = metadata.get("x")
+            y = metadata.get("y")
+            if x is not None and y is not None:
+                feat = QgsFeature()
+                feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
+                feat.setAttributes([
+                    name,
+                    metadata.get("GMW", ""),
+                    str(metadata.get("tubeNumber", "")),
+                ])
+                features.append(feat)
+
+        if features:
+            provider.addFeatures(features)
+            layer.updateExtents()
+            QgsProject.instance().addMapLayer(layer)
+
+            # Style the layer to make it highly visible
+            from qgis.core import QgsSimpleMarkerSymbolLayer, QgsMarkerSymbol, QgsSingleSymbolRenderer
+
+            symbol_layer = QgsSimpleMarkerSymbolLayer()
+            if hasattr(symbol_layer, "setShape"):
+                marker_shape = getattr(getattr(Qgis, "MarkerShape", None), "Circle", None)
+                if marker_shape is not None:
+                    symbol_layer.setShape(marker_shape)
+                else:
+                    symbol_layer.setShape(QgsSimpleMarkerSymbolLayer.decodeShape("circle"))
+            else:
+                symbol_layer.setName("circle")
+            symbol_layer.setColor(QColor(0, 120, 250, 200))  # Vivid blue
+            symbol_layer.setStrokeColor(QColor(255, 255, 255))  # White outline
+            symbol_layer.setStrokeWidth(1.0)
+            symbol_layer.setSize(8.0)
+
+            symbol = QgsMarkerSymbol()
+            symbol.changeSymbolLayer(0, symbol_layer)
+
+            renderer = QgsSingleSymbolRenderer(symbol)
+            layer.setRenderer(renderer)
+            layer.triggerRepaint()
+
+    def _download_selected_observations(self):
+        """Download observations for all checked locations that have not been downloaded yet."""
+        if not HAS_BRODATA:
+            QMessageBox.warning(self, "Error", "brodata package is not installed.")
+            return
+
+        # Identify which checked items need downloading
+        to_download = []
+        for row in range(self.table_series.rowCount()):
+            chk = self.table_series.cellWidget(row, 0)
+            if chk and chk.isChecked():
+                name_item = self.table_series.item(row, 1)
+                if name_item:
+                    name = name_item.text()
+                    if self.downloaded_data.get(name) is None:
+                        to_download.append(name)
+
+        if not to_download:
+            return
+
+        use_csv = self.download_format == "csv"
+
+        # Create progress dialog
+        self.progress_dialog = QProgressDialog(
+            "Downloading selected observations...", "Cancel", 0, 100, self
+        )
+        self.progress_dialog.setWindowTitle("BRO Observations Download")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setValue(0)
+        self.progress_dialog.show()
+        QApplication.processEvents()
+
+        downloaded_count = 0
+        try:
+            total = len(to_download)
+            for idx, name in enumerate(to_download):
+                if self.progress_dialog and self.progress_dialog.wasCanceled():
+                    break
+
+                # Update progress
+                progress = int((idx / total) * 100)
+                if self.progress_dialog:
+                    self.progress_dialog.setLabelText(
+                        f"Downloading observations {idx + 1}/{total} ({name})..."
+                    )
+                    self.progress_dialog.setValue(progress)
+                    QApplication.processEvents()
+
+                metadata = self.series_metadata.get(name, {})
+                gmw_id = metadata.get("GMW")
+                tube_number = metadata.get("tubeNumber")
+
+                if gmw_id is not None and tube_number is not None:
+                    try:
+                        df = brodata.gmw.get_tube_observations(
+                            gmw_id, tube_number, as_csv=use_csv
+                        )
+                        self.downloaded_data[name] = df
+                        downloaded_count += 1
+                    except Exception as e:
+                        print(f"Error downloading tube {name}: {e}")
+                        continue
+
+            if self.progress_dialog:
+                self.progress_dialog.setValue(100)
+                self.progress_dialog.close()
+                self.progress_dialog = None
+
+            # Refresh table and button states
+            self._refresh_metadata_filter_lists(select_all=False)
+            self._update_series_table()
+            self._update_button_states()
+
+            QMessageBox.information(
+                self,
+                "Download Complete",
+                f"Successfully downloaded observations for {downloaded_count} locations.",
+            )
+
+        except Exception as e:
+            if self.progress_dialog:
+                self.progress_dialog.close()
+                self.progress_dialog = None
+            QMessageBox.critical(
+                self,
+                "Download Error",
+                f"Failed to download observations:\n{str(e)}",
+            )

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Basic UI component tests (requires Qt environment)."""
 
 import pytest
@@ -51,4 +51,16 @@ class TestUIImports:
             assert PastastoreSettingsDialog is not None
         except ImportError as e:
             pytest.skip(f"Cannot import settings_dialog: {e}")
+
+    @pytest.mark.skipif(
+        not _has_qgis(),
+        reason="QGIS environment not available"
+    )
+    def test_import_bro_import_dialog(self):
+        """Test importing bro_import_dialog module."""
+        try:
+            from bro_import_dialog import BROImportDialog
+            assert BROImportDialog is not None
+        except ImportError as e:
+            pytest.skip(f"Cannot import bro_import_dialog: {e}")
 

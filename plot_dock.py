@@ -1,3 +1,16 @@
+from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QComboBox,
+    QSizePolicy,
+    QDialogButtonBox,
+    QMessageBox,
+    QDialog,
+    QMenu,
+)
+
 # -*- coding: utf-8 -*-
 
 from qgis.PyQt.QtWidgets import (
@@ -7,7 +20,7 @@ from qgis.PyQt.QtWidgets import (
     QLabel,
 )
 from .plot_toolbar import PlotNavigationWidget
-from .qt_compat import DOCK_AREA_BOTTOM, DOCK_AREA_TOP
+
 
 try:
     import pyqtgraph as pg
@@ -25,7 +38,7 @@ class PastastorePlotDock(QDockWidget):
     def __init__(self, parent=None):
         super(PastastorePlotDock, self).__init__("Pastastore Plot", parent)
         self.setObjectName("PastastorePlotDock")
-        self.setAllowedAreas(DOCK_AREA_BOTTOM | DOCK_AREA_TOP)
+        self.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.TopDockWidgetArea)
 
         # Container widget
         self.container = QWidget()

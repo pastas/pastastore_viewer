@@ -1,3 +1,16 @@
+from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QComboBox,
+    QSizePolicy,
+    QDialogButtonBox,
+    QMessageBox,
+    QDialog,
+    QMenu,
+)
+
 # -*- coding: utf-8 -*-
 
 from qgis.PyQt.QtWidgets import (
@@ -18,18 +31,7 @@ from qgis.core import QgsApplication
 import pandas as pd
 import numpy as np
 from .plot_toolbar import PlotNavigationWidget
-from .qt_compat import (
-    MOUSE_BUTTON_LEFT,
-    WINDOW_MAXIMIZE_BUTTON_HINT,
-    ORIENTATION_HORIZONTAL,
-    ITEM_IS_EDITABLE,
-    USER_ROLE,
-    KEY_DELETE,
-    SELECTION_BEHAVIOR_SELECT_ROWS,
-    SELECTION_MODE_EXTENDED,
-    SCROLL_HINT_POSITION_AT_CENTER,
-    HEADER_RESIZE_INTERACTIVE,
-)
+
 
 try:
     import pyqtgraph as pg
@@ -67,7 +69,7 @@ class SelectionViewBox(pg.ViewBox):
         self.setMouseMode(self.PanMode)
 
     def mouseDragEvent(self, ev, axis=None):
-        if self.selection_enabled and ev.button() == MOUSE_BUTTON_LEFT:
+        if self.selection_enabled and ev.button() == Qt.MouseButton.LeftButton:
             ev.accept()
             if ev.isStart():
                 self._rb_origin = self.mapFromScene(ev.buttonDownScenePos())
@@ -110,7 +112,7 @@ class OseriesEditorDialog(QDialog):
         self._closing_from_prompt = False
 
         self.setWindowTitle(f"Edit Oseries: {oseries_name}")
-        self.setWindowFlags(self.windowFlags() | WINDOW_MAXIMIZE_BUTTON_HINT)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowMaximizeButtonHint)
         self.resize(1200, 700)
 
         self.setup_ui()
@@ -190,7 +192,7 @@ class OseriesEditorDialog(QDialog):
             layout.addLayout(zoom_layout)
 
         # Create splitter for plot and table
-        splitter = QSplitter(ORIENTATION_HORIZONTAL)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
 
         # Plot widget
         if HAS_PYQTGRAPH:
@@ -219,10 +221,10 @@ class OseriesEditorDialog(QDialog):
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["DateTime", "Value"])
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(HEADER_RESIZE_INTERACTIVE)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.setColumnWidth(0, 120)
-        self.table.setSelectionBehavior(SELECTION_BEHAVIOR_SELECT_ROWS)
-        self.table.setSelectionMode(SELECTION_MODE_EXTENDED)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setSortingEnabled(True)
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
         splitter.addWidget(self.table)
@@ -270,8 +272,8 @@ class OseriesEditorDialog(QDialog):
             else:
                 dt_text = str(timestamp)
             dt_item = QTableWidgetItem(dt_text)
-            dt_item.setData(USER_ROLE, timestamp)
-            dt_item.setFlags(dt_item.flags() & ~ITEM_IS_EDITABLE)
+            dt_item.setData(Qt.ItemDataRole.UserRole, timestamp)
+            dt_item.setFlags(dt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.table.setItem(i, 0, dt_item)
 
             # Value - format safely to handle unexpected value containers
@@ -351,21 +353,19 @@ class OseriesEditorDialog(QDialog):
         self.table.blockSignals(True)
         try:
             self.table.clearSelection()
-            from qgis.PyQt.QtCore import QItemSelectionModel
-
             selection_model = self.table.selectionModel()
             for row in range(self.table.rowCount()):
                 item = self.table.item(row, 0)
-                if item and item.data(USER_ROLE) in selected_times:
+                if item and item.data(Qt.ItemDataRole.UserRole) in selected_times:
                     if first_selected_item is None:
                         first_selected_item = item
                     index = self.table.model().index(row, 0)
                     selection_model.select(
-                        index, QItemSelectionModel.Select | QItemSelectionModel.Rows
+                        index, QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
                     )
             if first_selected_item is not None:
                 self.table.scrollToItem(
-                    first_selected_item, SCROLL_HINT_POSITION_AT_CENTER
+                    first_selected_item, QAbstractItemView.ScrollHint.PositionAtCenter
                 )
         finally:
             self.table.blockSignals(False)
@@ -381,7 +381,7 @@ class OseriesEditorDialog(QDialog):
         for row in selected_rows:
             item = self.table.item(row, 0)
             if item:
-                selected_times.add(item.data(USER_ROLE))
+                selected_times.add(item.data(Qt.ItemDataRole.UserRole))
 
         self._selected_mask = np.array(
             [ts in selected_times for ts in self._plot_index], dtype=bool
@@ -429,13 +429,13 @@ class OseriesEditorDialog(QDialog):
             self,
             "Confirm Removal",
             f"Remove {len(selected_rows)} point(s)?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             for row in selected_rows:
-                timestamp = self.table.item(row, 0).data(USER_ROLE)
+                timestamp = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
                 self.series_data.loc[timestamp] = np.nan
 
             self.populate_table()
@@ -475,7 +475,7 @@ class OseriesEditorDialog(QDialog):
 
         dialog.setLayout(layout)
 
-        if dialog.exec_():
+        if dialog.exec():
             qdt = dt_edit.dateTime()
             timestamp = pd.Timestamp(
                 year=qdt.date().year(),
@@ -508,7 +508,7 @@ class OseriesEditorDialog(QDialog):
 
         row = selected_rows[0]
         timestamp_item = self.table.item(row, 0)
-        timestamp = timestamp_item.data(USER_ROLE)
+        timestamp = timestamp_item.data(Qt.ItemDataRole.UserRole)
         timestamp_str = timestamp_item.text()
         current_value = float(self.table.item(row, 1).text())
 
@@ -531,11 +531,11 @@ class OseriesEditorDialog(QDialog):
             self,
             "Confirm Reset",
             "Reset all changes to original data?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.series_data = self.original_data.copy()
             self.populate_table()
             self.plot_data()
@@ -550,7 +550,7 @@ class OseriesEditorDialog(QDialog):
 
     def keyPressEvent(self, event):
         """Map Delete key to the same behavior as 'Remove Selected Points'."""
-        if event.key() == KEY_DELETE:
+        if event.key() == Qt.Key.Key_Delete:
             if self.table.selectedItems():
                 self.remove_selected()
                 event.accept()
@@ -575,11 +575,11 @@ class OseriesEditorDialog(QDialog):
             self,
             "Unsaved Changes",
             "Some measurements were edited. Keep these changes?",
-            QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel,
-            QMessageBox.Yes,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self._closing_from_prompt = True
             try:
                 self.accept()
@@ -588,7 +588,7 @@ class OseriesEditorDialog(QDialog):
             event.accept()
             return
 
-        if reply == QMessageBox.No:
+        if reply == QMessageBox.StandardButton.No:
             self._closing_from_prompt = True
             try:
                 self.series_data = self.original_data.copy()

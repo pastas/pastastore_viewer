@@ -1,8 +1,22 @@
+from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QComboBox,
+    QSizePolicy,
+    QDialogButtonBox,
+    QMessageBox,
+    QDialog,
+    QMenu,
+)
+
 # -*- coding: utf-8 -*-
 # Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
 # This software is proprietary. See LICENSE.md for details.
 
 from qgis.PyQt.QtWidgets import QDialog, QVBoxLayout, QLabel, QLineEdit, QDialogButtonBox, QPushButton
+
 
 class PastastoreSettingsDialog(QDialog):
     def __init__(self, current_x='x', current_y='y', parent=None, plugin=None, **kwargs):
@@ -35,7 +49,7 @@ class PastastoreSettingsDialog(QDialog):
             license_btn.clicked.connect(self.open_license_manager)
             layout.addWidget(license_btn)
         
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         
@@ -54,4 +68,4 @@ class PastastoreSettingsDialog(QDialog):
         if self.plugin:
             from .pastastore_viewer import LicenseManagerDialog
             dlg = LicenseManagerDialog(self.plugin, parent=self)
-            dlg.exec_()
+            dlg.exec()

@@ -1,3 +1,16 @@
+from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QFrame,
+    QHeaderView,
+    QComboBox,
+    QSizePolicy,
+    QDialogButtonBox,
+    QMessageBox,
+    QDialog,
+    QMenu,
+)
+
 from qgis.PyQt.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -11,7 +24,7 @@ from qgis.PyQt.QtWidgets import (
     QMenu,
     QAction,
 )
-from .qt_compat import FRAME_SHAPE_NO_FRAME
+
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.core import QgsProject
 import pyqtgraph as pg
@@ -19,11 +32,7 @@ from pyqtgraph import DateAxisItem
 import numpy as np
 import pandas as pd
 import pastas as ps
-from .qt_compat import (
-    WA_TRANSLUCENT_BACKGROUND,
-    HEADER_RESIZE_STRETCH,
-    EDIT_TRIGGERS_NONE,
-)
+
 from .plot_toolbar import PlotNavigationWidget
 
 
@@ -92,7 +101,7 @@ class ResultsPlotDialog(QDialog):
         # Scroll Area
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(FRAME_SHAPE_NO_FRAME)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_content = QWidget()
         self.scroll_layout = QVBoxLayout(self.scroll_content)
         self.scroll_layout.setContentsMargins(0, 0, 0, 0)
@@ -329,7 +338,7 @@ class ResultsPlotDialog(QDialog):
 
         # Row 0-1, Col 1: Parameters Table
         table_container = QWidget()
-        table_container.setAttribute(WA_TRANSLUCENT_BACKGROUND)
+        table_container.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         table_container_layout = QVBoxLayout(table_container)
         table_container_layout.setContentsMargins(Y_AXIS_WIDTH, 0, 0, 0)
 
@@ -353,8 +362,8 @@ class ResultsPlotDialog(QDialog):
                 err_str = f"{stderr:.4f}" if not np.isnan(stderr) else "-"
                 params_table.setItem(i, 2, QTableWidgetItem(err_str))
 
-        params_table.horizontalHeader().setSectionResizeMode(HEADER_RESIZE_STRETCH)
-        params_table.setEditTriggers(EDIT_TRIGGERS_NONE)
+        params_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        params_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         params_table.setStyleSheet("background-color: white; gridline-color: #ddd;")
 
         table_container_layout.addWidget(params_table)
