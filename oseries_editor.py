@@ -109,7 +109,6 @@ class OseriesEditorDialog(QDialog):
         self._plot_index = None
         self._selected_mask = None
         self._syncing_selection = False
-        self._closing_from_prompt = False
 
         self.setWindowTitle(f"Edit Oseries: {oseries_name}")
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowMaximizeButtonHint)
@@ -558,17 +557,9 @@ class OseriesEditorDialog(QDialog):
         super(OseriesEditorDialog, self).keyPressEvent(event)
 
     def reject(self):
-        """Route reject through close to ensure unsaved-change prompt is shown."""
-        self.close()
-
-    def closeEvent(self, event):
-        """Prompt to keep or discard edits when closing with unsaved changes."""
-        if self._closing_from_prompt:
-            super(OseriesEditorDialog, self).closeEvent(event)
-            return
-
+        """Prompt to keep or discard edits before rejecting the dialog."""
         if not self._has_unsaved_changes():
-            super(OseriesEditorDialog, self).closeEvent(event)
+            super(OseriesEditorDialog, self).reject()
             return
 
         reply = QMessageBox.question(
@@ -580,22 +571,10 @@ class OseriesEditorDialog(QDialog):
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            self._closing_from_prompt = True
-            try:
-                self.accept()
-            finally:
-                self._closing_from_prompt = False
-            event.accept()
+            self.accept()
             return
 
         if reply == QMessageBox.StandardButton.No:
-            self._closing_from_prompt = True
-            try:
-                self.series_data = self.original_data.copy()
-                super(OseriesEditorDialog, self).reject()
-            finally:
-                self._closing_from_prompt = False
-            event.accept()
+            self.series_data = self.original_data.copy()
+            super(OseriesEditorDialog, self).reject()
             return
-
-        event.ignore()
