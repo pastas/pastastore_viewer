@@ -24,6 +24,8 @@ from qgis.PyQt.QtWidgets import (
     QMessageBox,
     QInputDialog,
     QSplitter,
+    QAction,
+    QMenu,
 )
 from qgis.PyQt.QtCore import QDateTime, QRectF
 from qgis.PyQt.QtGui import QColor, QPen
@@ -46,11 +48,12 @@ except ImportError:
 
 
 class SelectionViewBox(pg.ViewBox):
-    """ViewBox that supports rectangle selection."""
+    """ViewBox that supports rectangle selection and double-click to clear selection."""
 
-    def __init__(self, on_select=None, *args, **kwargs):
+    def __init__(self, on_select=None, on_double_click=None, *args, **kwargs):
         super(SelectionViewBox, self).__init__(*args, **kwargs)
         self.on_select = on_select
+        self.on_double_click = on_double_click
         self.selection_enabled = True
         self._rb_origin = None
         self._rb_item = QGraphicsRectItem(self)
@@ -58,6 +61,14 @@ class SelectionViewBox(pg.ViewBox):
         self._rb_item.setBrush(QColor(255, 255, 0, 40))
         self._rb_item.setZValue(1e9)
         self._rb_item.hide()
+
+    def mouseDoubleClickEvent(self, ev):
+        if self.selection_enabled and ev.button() == Qt.MouseButton.LeftButton:
+            ev.accept()
+            if self.on_double_click:
+                self.on_double_click()
+        else:
+            super(SelectionViewBox, self).mouseDoubleClickEvent(ev)
 
     def enable_select_mode(self):
         self.selection_enabled = True
@@ -120,6 +131,7 @@ class OseriesEditorDialog(QDialog):
         self.setup_ui()
         self.populate_table()
         self.plot_data()
+        self.update_save_button_state()
 
     def _coerce_series(self, series_data):
         """Ensure we have a single pandas Series for the editor."""
@@ -179,18 +191,25 @@ class OseriesEditorDialog(QDialog):
                 QgsApplication.getThemeIcon("/mActionEditTable.svg")
             )
             self.btn_modify.setToolTip("Modify Selected Point")
+            self.btn_offset = QPushButton()
+            self.btn_offset.setIcon(
+                QgsApplication.getThemeIcon("/mActionCalculateField.svg")
+            )
+            self.btn_offset.setToolTip("Add Offset to Selected Measurements")
             self.btn_select.setCheckable(True)
             self.btn_select.setMaximumWidth(40)
             self.btn_select.clicked.connect(self._enable_select_mode)
             self.btn_remove.clicked.connect(self.remove_selected)
             self.btn_add.clicked.connect(self.add_point)
             self.btn_modify.clicked.connect(self.modify_selected)
+            self.btn_offset.clicked.connect(self.add_offset_to_selected)
             zoom_layout.addWidget(self.btn_select)
             zoom_layout.addWidget(self.plot_nav)
             zoom_layout.addStretch()
             zoom_layout.addWidget(self.btn_remove)
             zoom_layout.addWidget(self.btn_add)
             zoom_layout.addWidget(self.btn_modify)
+            zoom_layout.addWidget(self.btn_offset)
             layout.addLayout(zoom_layout)
 
         # Create splitter for plot and table
@@ -198,7 +217,10 @@ class OseriesEditorDialog(QDialog):
 
         # Plot widget
         if HAS_PYQTGRAPH:
-            self.view_box = SelectionViewBox(on_select=self._on_rect_selected)
+            self.view_box = SelectionViewBox(
+                on_select=self._on_rect_selected,
+                on_double_click=self.clear_selection,
+            )
             self.plot_widget = pg.PlotWidget(
                 viewBox=self.view_box, axisItems={"bottom": DateAxisItem()}
             )
@@ -228,7 +250,10 @@ class OseriesEditorDialog(QDialog):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setSortingEnabled(True)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._show_table_context_menu)
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
+        self.table.itemChanged.connect(self._on_table_item_changed)
         splitter.addWidget(self.table)
 
         splitter.setStretchFactor(0, 1)
@@ -257,9 +282,49 @@ class OseriesEditorDialog(QDialog):
 
         layout.addLayout(button_layout)
         self.setLayout(layout)
+        self.update_save_button_state()
+        self._update_modify_button_state()
+
+    def update_save_button_state(self):
+        """Update the enabled state of the Save button based on unsaved changes."""
+        if hasattr(self, "btn_save"):
+            self.btn_save.setEnabled(self._has_unsaved_changes())
+
+    def _update_modify_button_state(self):
+        """Enable 'Modify Selected Point' button only if exactly one point is selected."""
+        if hasattr(self, "btn_modify"):
+            selected_rows = set(item.row() for item in self.table.selectedItems())
+            self.btn_modify.setEnabled(len(selected_rows) == 1)
+
+    def clear_selection(self):
+        """Clear point selection in table and plot."""
+        self.table.clearSelection()
+        if self._plot_index is not None:
+            self._selected_mask = np.zeros(len(self._plot_index), dtype=bool)
+            self._update_plot_selection()
+        self._update_modify_button_state()
+
+    def _on_table_item_changed(self, item):
+        if item is None or item.column() != 1:
+            return
+        row = item.row()
+        ts_item = self.table.item(row, 0)
+        if ts_item is None:
+            return
+        timestamp = ts_item.data(Qt.ItemDataRole.UserRole)
+        if timestamp is None:
+            return
+        try:
+            val = float(item.text())
+            self.series_data.loc[timestamp] = val
+            self.plot_data()
+            self.update_save_button_state()
+        except ValueError:
+            pass
 
     def populate_table(self):
         """Populate table with series data."""
+        self.table.blockSignals(True)
         self.table.setSortingEnabled(False)
         self.table.setRowCount(0)
 
@@ -283,6 +348,8 @@ class OseriesEditorDialog(QDialog):
             self.table.setItem(i, 1, val_item)
 
         self.table.setSortingEnabled(True)
+        self.table.blockSignals(False)
+        self._update_modify_button_state()
 
     def plot_data(self):
         """Plot the time series data."""
@@ -372,11 +439,13 @@ class OseriesEditorDialog(QDialog):
         finally:
             self.table.blockSignals(False)
             self._syncing_selection = False
+            self._update_modify_button_state()
 
     def _on_table_selection_changed(self):
         if self._syncing_selection:
             return
         if self._plot_index is None:
+            self._update_modify_button_state()
             return
         selected_rows = sorted(set(item.row() for item in self.table.selectedItems()))
         selected_times = set()
@@ -389,6 +458,7 @@ class OseriesEditorDialog(QDialog):
             [ts in selected_times for ts in self._plot_index], dtype=bool
         )
         self._update_plot_selection()
+        self._update_modify_button_state()
 
     def _enable_rect_zoom(self):
         if not HAS_PYQTGRAPH:
@@ -442,6 +512,7 @@ class OseriesEditorDialog(QDialog):
 
             self.populate_table()
             self.plot_data()
+            self.update_save_button_state()
 
     def add_point(self):
         """Add a new point to the series."""
@@ -493,6 +564,133 @@ class OseriesEditorDialog(QDialog):
             self.series_data = self.series_data.sort_index()
             self.populate_table()
             self.plot_data()
+            self.update_save_button_state()
+
+    def add_offset_to_selected(self):
+        """Add a value/offset to selected measurements (or all if none selected)."""
+        selected_rows = sorted(set(item.row() for item in self.table.selectedItems()))
+
+        if not selected_rows:
+            valid_data = self.series_data.dropna()
+            if valid_data.empty:
+                QMessageBox.warning(self, "No Data", "No measurements available to edit.")
+                return
+
+            reply = QMessageBox.question(
+                self,
+                "No Selection",
+                "No points selected. Do you want to add an offset to ALL measurements in the series?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            timestamps = list(valid_data.index)
+        else:
+            timestamps = []
+            for row in selected_rows:
+                ts_item = self.table.item(row, 0)
+                if ts_item:
+                    ts = ts_item.data(Qt.ItemDataRole.UserRole)
+                    if ts is not None:
+                        timestamps.append(ts)
+
+        if not timestamps:
+            return
+
+        count = len(timestamps)
+        offset, ok = QInputDialog.getDouble(
+            self,
+            "Add Offset to Measurements",
+            f"Enter value to add to {count} measurement(s) (use negative to subtract):",
+            value=0.0,
+            decimals=4,
+        )
+
+        if ok and offset != 0.0:
+            for ts in timestamps:
+                if ts in self.series_data.index:
+                    val = self.series_data.loc[ts]
+                    if isinstance(val, (int, float, np.number)) and not np.isnan(val):
+                        self.series_data.loc[ts] = float(val + offset)
+
+            self.populate_table()
+            self.plot_data()
+            self._restore_selection_by_timestamps(timestamps)
+            self.update_save_button_state()
+
+    def _restore_selection_by_timestamps(self, timestamps):
+        """Restore row selection in table and plot scatter for given timestamps."""
+        if not timestamps:
+            return
+        target_set = set(timestamps)
+        self._syncing_selection = True
+        self.table.blockSignals(True)
+        try:
+            self.table.clearSelection()
+            selection_model = self.table.selectionModel()
+            first_selected = None
+            for row in range(self.table.rowCount()):
+                item = self.table.item(row, 0)
+                if item and item.data(Qt.ItemDataRole.UserRole) in target_set:
+                    if first_selected is None:
+                        first_selected = item
+                    index = self.table.model().index(row, 0)
+                    selection_model.select(
+                        index, QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
+                    )
+            if first_selected is not None:
+                self.table.scrollToItem(first_selected, QAbstractItemView.ScrollHint.EnsureVisible)
+        finally:
+            self.table.blockSignals(False)
+            self._syncing_selection = False
+
+        if self._plot_index is not None:
+            self._selected_mask = np.array(
+                [ts in target_set for ts in self._plot_index], dtype=bool
+            )
+            self._update_plot_selection()
+        self._update_modify_button_state()
+
+    def _show_table_context_menu(self, position):
+        menu = QMenu(self)
+        selected_rows = sorted(set(item.row() for item in self.table.selectedItems()))
+
+        act_offset = QAction("Add Offset to Selected...", self)
+        if hasattr(QgsApplication, "getThemeIcon"):
+            icon = QgsApplication.getThemeIcon("/mActionCalculateField.svg")
+            if not icon.isNull():
+                act_offset.setIcon(icon)
+        act_offset.triggered.connect(self.add_offset_to_selected)
+        menu.addAction(act_offset)
+
+        act_modify = QAction("Modify Selected Point...", self)
+        act_modify.setEnabled(len(selected_rows) == 1)
+        if hasattr(QgsApplication, "getThemeIcon"):
+            icon = QgsApplication.getThemeIcon("/mActionEditTable.svg")
+            if not icon.isNull():
+                act_modify.setIcon(icon)
+        act_modify.triggered.connect(self.modify_selected)
+        menu.addAction(act_modify)
+
+        act_remove = QAction("Remove Selected Points", self)
+        if hasattr(QgsApplication, "getThemeIcon"):
+            icon = QgsApplication.getThemeIcon("/mActionDeleteSelected.svg")
+            if not icon.isNull():
+                act_remove.setIcon(icon)
+        act_remove.triggered.connect(self.remove_selected)
+        menu.addAction(act_remove)
+
+        act_add = QAction("Add Observation...", self)
+        if hasattr(QgsApplication, "getThemeIcon"):
+            icon = QgsApplication.getThemeIcon("/mActionNewAttribute.svg")
+            if not icon.isNull():
+                act_add.setIcon(icon)
+        act_add.triggered.connect(self.add_point)
+        menu.addAction(act_add)
+
+        menu.exec(self.table.viewport().mapToGlobal(position))
 
     def modify_selected(self):
         """Modify the value of selected points."""
@@ -503,9 +701,7 @@ class OseriesEditorDialog(QDialog):
             return
 
         if len(selected_rows) > 1:
-            QMessageBox.warning(
-                self, "Multiple Selection", "Please select only one point to modify."
-            )
+            self.add_offset_to_selected()
             return
 
         row = selected_rows[0]
@@ -526,6 +722,8 @@ class OseriesEditorDialog(QDialog):
             self.series_data.loc[timestamp] = value
             self.populate_table()
             self.plot_data()
+            self._restore_selection_by_timestamps([timestamp])
+            self.update_save_button_state()
 
     def reset_data(self):
         """Reset data to original."""
@@ -541,6 +739,7 @@ class OseriesEditorDialog(QDialog):
             self.series_data = self.original_data.copy()
             self.populate_table()
             self.plot_data()
+            self.update_save_button_state()
 
     def get_modified_series(self):
         """Return the modified series."""
