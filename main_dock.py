@@ -74,6 +74,7 @@ class PastastoreMainDock(QDockWidget):
     select_oseries_for_models_requested = pyqtSignal(list)  # model names
     select_stresses_for_models_requested = pyqtSignal(list)  # model names
     edit_oseries_requested = pyqtSignal(str)  # oseries name
+    edit_stress_requested = pyqtSignal(str)  # stress name
     create_model_requested = pyqtSignal(str)  # oseries name
     create_models_requested = pyqtSignal(list)  # oseries names
     import_bro_requested = pyqtSignal()  # Import from BRO
@@ -788,6 +789,15 @@ class PastastoreMainDock(QDockWidget):
         names = [self.table_stresses.item(row, 0).text() for row in rows]
 
         menu = QMenu()
+
+        if len(names) == 1:
+            edit_action = QAction(_tr("Edit Series"), self)
+            edit_action.setIcon(QgsApplication.getThemeIcon("/mActionEditTable.svg"))
+            edit_action.triggered.connect(
+                lambda: self.edit_stress_requested.emit(names[0])
+            )
+            menu.addAction(edit_action)
+
         select_action = QAction(_tr("Select Models"), self)
         select_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
         select_action.triggered.connect(

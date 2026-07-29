@@ -96,3 +96,20 @@ class TestOseriesEditorSaveButton:
         assert mask[0] == True
         assert mask[1] == True
         assert mask[2] == False
+
+    def test_stress_series_editor_support(self):
+        """Test series_type='stress' title and alias support."""
+        idx = pd.date_range("2020-01-01", periods=5, freq="D")
+        series = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], index=idx)
+
+        if _has_qgis():
+            from oseries_editor import OseriesEditorDialog, SeriesEditorDialog
+            editor = OseriesEditorDialog("precip_1", series, series_type="stress")
+            assert "Stress: precip_1" in editor.windowTitle()
+            assert SeriesEditorDialog is OseriesEditorDialog
+        else:
+            try:
+                from oseries_editor import SeriesEditorDialog, OseriesEditorDialog
+                assert SeriesEditorDialog is OseriesEditorDialog
+            except ModuleNotFoundError:
+                pass

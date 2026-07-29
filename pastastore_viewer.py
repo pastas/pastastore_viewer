@@ -361,6 +361,7 @@ class PastastoreViewer:
                 self.select_stresses_for_models
             )
             self.dock_widget.edit_oseries_requested.connect(self.open_oseries_editor)
+            self.dock_widget.edit_stress_requested.connect(self.open_stress_editor)
             self.dock_widget.create_model_requested.connect(
                 self.create_model_from_oseries
             )
@@ -2358,20 +2359,32 @@ class PastastoreViewer:
                 modified_series = dlg.get_modified_series()
 
                 # Update in store
-                # Note: pastastore doesn't have a direct update method, so we delete and re-add
-                metadata = self.store.oseries.loc[oseries_name].to_dict()
-                self.store.del_oseries(oseries_name)
-                self.store.add_oseries(
-                    modified_series, name=oseries_name, metadata=metadata
+                metadata = (
+                    self.store.oseries.loc[oseries_name].to_dict()
+                    if hasattr(self.store, "oseries") and oseries_name in self.store.oseries.index
+                    else {}
                 )
+                if hasattr(self.store, "del_oseries"):
+                    try:
+                        self.store.del_oseries(oseries_name)
+                    except Exception:
+                        pass
+                elif hasattr(self.store, "del_oseries"):
+                    try:
+                        self.store.del_oseries(oseries_name)
+                    except Exception:
+                        pass
+
+                self._add_oseries_to_store(modified_series, oseries_name, metadata)
                 self.store_modified = True
 
                 self._push_message(
                     "Success", f"Updated oseries: {oseries_name}", level=0
                 )
 
-                # Refresh plot if this oseries is currently selected
+                # Refresh dock table & plot if this oseries is currently selected
                 if self.dock_widget:
+                    self.dock_widget.populate_lists(self.store)
                     current_tab = self.dock_widget.tabs.currentIndex()
                     if current_tab == 0:  # Oseries tab
                         # Re-trigger selection to refresh plot
@@ -2381,6 +2394,64 @@ class PastastoreViewer:
             import traceback
 
             self._push_message("Error", f"Failed to edit oseries: {str(e)}", level=2)
+            print(traceback.format_exc())
+
+    def open_stress_editor(self, stress_name):
+        """Open the series editor dialog for a stress series."""
+        if not self.store:
+            return
+
+        try:
+            # Get the stress data
+            series_data = self.store.get_stresses(stress_name)
+
+            # Open editor dialog
+            dlg = OseriesEditorDialog(
+                stress_name, series_data, self.iface.mainWindow(), series_type="stress"
+            )
+
+            if dlg.exec():
+                # Get modified series
+                modified_series = dlg.get_modified_series()
+
+                # Get metadata
+                metadata = (
+                    self.store.stresses.loc[stress_name].to_dict()
+                    if hasattr(self.store, "stresses") and stress_name in self.store.stresses.index
+                    else {}
+                )
+
+                # Delete existing stress
+                if hasattr(self.store, "del_stress"):
+                    try:
+                        self.store.del_stress(stress_name)
+                    except Exception:
+                        pass
+                elif hasattr(self.store, "del_stresses"):
+                    try:
+                        self.store.del_stresses(stress_name)
+                    except Exception:
+                        pass
+
+                # Add modified stress series back to store
+                self._add_stress_to_store(modified_series, stress_name, metadata)
+                self.store_modified = True
+
+                self._push_message(
+                    "Success", f"Updated stress: {stress_name}", level=0
+                )
+
+                # Refresh dock table & plot if stresses tab is active
+                if self.dock_widget:
+                    self.dock_widget.populate_lists(self.store)
+                    current_tab = self.dock_widget.tabs.currentIndex()
+                    if current_tab == 1:  # Stresses tab
+                        self.dock_widget._on_selection_changed("stresses")
+
+        except Exception as e:
+            import traceback
+
+            self._push_message("Error", f"Failed to edit stress {stress_name}: {str(e)}", level=2)
             print(traceback.format_exc())
 
     def open_bro_import_dialog(self):

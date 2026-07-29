@@ -111,9 +111,10 @@ class SelectionViewBox(pg.ViewBox):
 class OseriesEditorDialog(QDialog):
     """Dialog for editing observation series data."""
 
-    def __init__(self, oseries_name, series_data, parent=None):
+    def __init__(self, oseries_name, series_data, parent=None, series_type="oseries"):
         super(OseriesEditorDialog, self).__init__(parent)
         self.oseries_name = oseries_name
+        self.series_type = series_type
         coerced_series = self._coerce_series(series_data)
         self.original_data = coerced_series.copy()
         self.series_data = coerced_series.copy()
@@ -124,7 +125,8 @@ class OseriesEditorDialog(QDialog):
         self._selected_mask = None
         self._syncing_selection = False
 
-        self.setWindowTitle(f"Edit Oseries: {oseries_name}")
+        type_title = "Stress" if series_type == "stress" else "Oseries"
+        self.setWindowTitle(f"Edit {type_title}: {oseries_name}")
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowMaximizeButtonHint)
         self.resize(1200, 700)
 
@@ -234,7 +236,8 @@ class OseriesEditorDialog(QDialog):
                 ax.setPen("k")
                 ax.setTextPen("k")
 
-            self.plot_widget.setTitle(f"Oseries: {self.oseries_name}", color="k")
+            type_title = "Stress" if getattr(self, "series_type", "oseries") == "stress" else "Oseries"
+            self.plot_widget.setTitle(f"{type_title}: {self.oseries_name}", color="k")
             splitter.addWidget(self.plot_widget)
 
             # Enable point selection
@@ -780,3 +783,7 @@ class OseriesEditorDialog(QDialog):
             self.series_data = self.original_data.copy()
             super(OseriesEditorDialog, self).reject()
             return
+
+
+# Alias for generic series editor usage
+SeriesEditorDialog = OseriesEditorDialog
