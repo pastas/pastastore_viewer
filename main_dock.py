@@ -29,6 +29,7 @@ from qgis.PyQt.QtWidgets import (
     QComboBox,
     QGroupBox,
     QCheckBox,
+    QGridLayout,
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QLinearGradient, QPainter, QPixmap
@@ -91,6 +92,7 @@ class PastastoreMainDock(QDockWidget):
         self.auto_zoom = False
         self.store_path = None
         self.is_updating_selection = False
+        self.filter_widgets = {}
 
         # Container widget
         self.container = QWidget()
@@ -135,8 +137,9 @@ class PastastoreMainDock(QDockWidget):
         oseries_layout = QVBoxLayout()
         oseries_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Oseries table
+        # Oseries filter & table
         self.table_oseries = QTableWidget()
+        oseries_layout.addWidget(self._create_filter_bar("oseries"))
         oseries_layout.addWidget(self.table_oseries)
         
         # Import button below oseries table
@@ -163,6 +166,7 @@ class PastastoreMainDock(QDockWidget):
         stresses_layout.setContentsMargins(0, 0, 0, 0)
 
         self.table_stresses = QTableWidget()
+        stresses_layout.addWidget(self._create_filter_bar("stresses"))
         stresses_layout.addWidget(self.table_stresses)
 
         stresses_button_layout = QHBoxLayout()
@@ -208,6 +212,7 @@ class PastastoreMainDock(QDockWidget):
         self.table_models.horizontalHeader().customContextMenuRequested.connect(
             self._show_models_header_menu
         )
+        models_layout.addWidget(self._create_filter_bar("models"))
         models_layout.addWidget(self.table_models)
 
         # Map plot pane
@@ -386,6 +391,289 @@ class PastastoreMainDock(QDockWidget):
 
         self._exec_menu(menu, self.table_models.horizontalHeader().mapToGlobal(position))
 
+    def _get_table_for_category(self, category):
+        if category == "oseries":
+            return self.table_oseries
+        elif category == "stresses":
+            return self.table_stresses
+        elif category == "models":
+            return self.table_models
+        return None
+
+    def _create_filter_bar(self, category):
+        group = QGroupBox(_tr("Filter"))
+        layout = QVBoxLayout()
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(4)
+
+        combo_col = QComboBox()
+        combo_col.setToolTip(_tr("Select column to filter"))
+        combo_col.addItem(_tr("All Columns"), "")
+
+        le_filter = QLineEdit()
+        le_filter.setPlaceholderText(_tr("Filter text or > < = expression..."))
+        if hasattr(le_filter, "setClearButtonEnabled"):
+            le_filter.setClearButtonEnabled(True)
+
+        btn_toggle = QToolButton()
+        btn_toggle.setText(_tr("Column Filters"))
+        btn_toggle.setCheckable(True)
+        btn_toggle.setToolTip(_tr("Toggle per-column filter inputs"))
+        try:
+            filter_icon = QgsApplication.getThemeIcon("/mActionFilter.svg")
+            if not filter_icon.isNull():
+                btn_toggle.setIcon(filter_icon)
+                btn_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        except Exception:
+            pass
+
+        btn_clear = QToolButton()
+        btn_clear.setText(_tr("Clear"))
+        btn_clear.setToolTip(_tr("Clear all filters"))
+
+        lbl_count = QLabel()
+        lbl_count.setStyleSheet("color: gray; font-size: 11px;")
+
+        top_row.addWidget(combo_col)
+        top_row.addWidget(le_filter, 1)
+        top_row.addWidget(btn_toggle)
+        top_row.addWidget(btn_clear)
+        top_row.addWidget(lbl_count)
+
+        layout.addLayout(top_row)
+
+        panel = QFrame()
+        panel.setFrameShape(QFrame.Shape.StyledPanel)
+        panel.setVisible(False)
+        panel_layout = QGridLayout()
+        panel_layout.setContentsMargins(4, 4, 4, 4)
+        panel_layout.setSpacing(4)
+        panel.setLayout(panel_layout)
+        layout.addWidget(panel)
+
+        btn_toggle.toggled.connect(panel.setVisible)
+
+        self.filter_widgets[category] = {
+            "group": group,
+            "combo_col": combo_col,
+            "le_filter": le_filter,
+            "btn_toggle": btn_toggle,
+            "btn_clear": btn_clear,
+            "lbl_count": lbl_count,
+            "panel": panel,
+            "panel_layout": panel_layout,
+            "column_inputs": {},
+        }
+
+        le_filter.textChanged.connect(lambda text, cat=category: self._apply_filter(cat))
+        combo_col.currentIndexChanged.connect(lambda index, cat=category: self._apply_filter(cat))
+        btn_clear.clicked.connect(lambda checked=False, cat=category: self._clear_filter(cat))
+
+        group.setLayout(layout)
+        return group
+
+    def _update_filter_controls(self, category):
+        table = self._get_table_for_category(category)
+        if not table or category not in self.filter_widgets:
+            return
+
+        fw = self.filter_widgets[category]
+        combo_col = fw["combo_col"]
+        panel_layout = fw["panel_layout"]
+        old_inputs = fw["column_inputs"]
+
+        saved_texts = {col: le.text() for col, le in old_inputs.items()}
+
+        while panel_layout.count():
+            child = panel_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        fw["column_inputs"] = {}
+
+        combo_col.blockSignals(True)
+        current_sel = combo_col.currentData()
+        combo_col.clear()
+        combo_col.addItem(_tr("All Columns"), "")
+
+        cols_count = table.columnCount()
+        col_headers = []
+        for c in range(cols_count):
+            item = table.horizontalHeaderItem(c)
+            header_text = item.text() if item else f"Column {c}"
+            col_headers.append(header_text)
+            combo_col.addItem(header_text, header_text)
+
+        idx = combo_col.findData(current_sel)
+        if idx >= 0:
+            combo_col.setCurrentIndex(idx)
+        else:
+            combo_col.setCurrentIndex(0)
+        combo_col.blockSignals(False)
+
+        for i, header_text in enumerate(col_headers):
+            lbl = QLabel(f"{header_text}:")
+            le = QLineEdit()
+            le.setPlaceholderText(_tr("Filter {0}...").format(header_text))
+            if hasattr(le, "setClearButtonEnabled"):
+                le.setClearButtonEnabled(True)
+            if header_text in saved_texts:
+                le.setText(saved_texts[header_text])
+            le.textChanged.connect(lambda text, cat=category: self._apply_filter(cat))
+
+            row = i // 2
+            col = (i % 2) * 2
+            panel_layout.addWidget(lbl, row, col)
+            panel_layout.addWidget(le, row, col + 1)
+            fw["column_inputs"][header_text] = le
+
+        self._apply_filter(category)
+
+    def _clear_filter(self, category):
+        if category not in self.filter_widgets:
+            return
+        fw = self.filter_widgets[category]
+        fw["le_filter"].blockSignals(True)
+        fw["le_filter"].clear()
+        fw["le_filter"].blockSignals(False)
+
+        for le in fw["column_inputs"].values():
+            le.blockSignals(True)
+            le.clear()
+            le.blockSignals(False)
+
+        fw["combo_col"].blockSignals(True)
+        fw["combo_col"].setCurrentIndex(0)
+        fw["combo_col"].blockSignals(False)
+
+        self._apply_filter(category)
+
+    @staticmethod
+    def _match_filter_value(val_str, filter_str):
+        if val_str is None:
+            val_str = ""
+        else:
+            val_str = str(val_str).strip()
+
+        filter_str = filter_str.strip()
+        if not filter_str:
+            return True
+
+        ops = [(">=", 2), ("<=", 2), ("!=", 2), (">", 1), ("<", 1), ("=", 1)]
+        matched_op = None
+        op_len = 0
+        for op_str, length in ops:
+            if filter_str.startswith(op_str):
+                matched_op = op_str
+                op_len = length
+                break
+
+        if matched_op:
+            target_str = filter_str[op_len:].strip()
+            try:
+                val_num = float(val_str)
+                target_num = float(target_str)
+                if matched_op == ">=":
+                    return val_num >= target_num
+                elif matched_op == "<=":
+                    return val_num <= target_num
+                elif matched_op == ">":
+                    return val_num > target_num
+                elif matched_op == "<":
+                    return val_num < target_num
+                elif matched_op == "=":
+                    return val_num == target_num
+                elif matched_op == "!=":
+                    return val_num != target_num
+            except ValueError:
+                val_lower = val_str.lower()
+                target_lower = target_str.lower()
+                if matched_op == "=":
+                    return val_lower == target_lower
+                elif matched_op == "!=":
+                    return val_lower != target_lower
+                elif matched_op == ">=":
+                    return val_lower >= target_lower
+                elif matched_op == "<=":
+                    return val_lower <= target_lower
+                elif matched_op == ">":
+                    return val_lower > target_lower
+                elif matched_op == "<":
+                    return val_lower < target_lower
+
+        return filter_str.lower() in val_str.lower()
+
+    def _apply_filter(self, category):
+        table = self._get_table_for_category(category)
+        if not table or category not in self.filter_widgets:
+            return
+
+        fw = self.filter_widgets[category]
+        main_text = fw["le_filter"].text().strip()
+        target_col = fw["combo_col"].currentData()
+        col_inputs = fw["column_inputs"]
+
+        total_rows = table.rowCount()
+        if total_rows == 0:
+            fw["lbl_count"].setText("")
+            return
+
+        col_index_map = {}
+        for c in range(table.columnCount()):
+            header_item = table.horizontalHeaderItem(c)
+            header_name = header_item.text() if header_item else f"Column {c}"
+            col_index_map[header_name] = c
+
+        visible_count = 0
+        table.setSortingEnabled(False)
+        for row in range(total_rows):
+            row_matches = True
+
+            if main_text:
+                if target_col:
+                    col_idx = col_index_map.get(target_col)
+                    if col_idx is not None:
+                        item = table.item(row, col_idx)
+                        cell_text = item.text() if item else ""
+                        if not self._match_filter_value(cell_text, main_text):
+                            row_matches = False
+                else:
+                    any_match = False
+                    for c in range(table.columnCount()):
+                        item = table.item(row, c)
+                        cell_text = item.text() if item else ""
+                        if self._match_filter_value(cell_text, main_text):
+                            any_match = True
+                            break
+                    if not any_match:
+                        row_matches = False
+
+            if row_matches:
+                for header_name, le in col_inputs.items():
+                    col_filter_text = le.text().strip()
+                    if col_filter_text:
+                        col_idx = col_index_map.get(header_name)
+                        if col_idx is not None:
+                            item = table.item(row, col_idx)
+                            cell_text = item.text() if item else ""
+                            if not self._match_filter_value(cell_text, col_filter_text):
+                                row_matches = False
+                                break
+
+            table.setRowHidden(row, not row_matches)
+            if row_matches:
+                visible_count += 1
+
+        table.setSortingEnabled(True)
+
+        if main_text or any(le.text().strip() for le in col_inputs.values()):
+            fw["lbl_count"].setText(f"{visible_count} / {total_rows}")
+        else:
+            fw["lbl_count"].setText(f"{total_rows}")
+
     def _request_add_column(self, stat):
         if stat not in self._model_extra_cols:
             self._model_extra_cols.append(stat)
@@ -398,6 +686,7 @@ class PastastoreMainDock(QDockWidget):
             self.table_models.setHorizontalHeaderItem(col, QTableWidgetItem(label))
             for row in range(self.table_models.rowCount()):
                 self.table_models.setItem(row, col, QTableWidgetItem("…"))
+            self._update_filter_controls("models")
             # Ask pastastore_viewer to compute and fill the values
             self.add_model_column_requested.emit(stat)
 
@@ -408,6 +697,7 @@ class PastastoreMainDock(QDockWidget):
         self._model_extra_cols.remove(stat)
         # +2 because columns 0,1 are Name and Oseries
         self.table_models.removeColumn(idx + 2)
+        self._update_filter_controls("models")
 
     def set_model_column_values(self, stat, values):
         """Fill a stat column with computed values. values is a dict {model_name: value}."""
@@ -428,6 +718,7 @@ class PastastoreMainDock(QDockWidget):
                 cell.setText("-")
             self.table_models.setItem(row, col, cell)
         self.table_models.setSortingEnabled(True)
+        self._apply_filter("models")
 
     def show_oseries_context_menu(self, position):
         from qgis.PyQt.QtWidgets import QMenu, QAction
@@ -606,6 +897,9 @@ class PastastoreMainDock(QDockWidget):
         self.table_models.setRowCount(0)
 
         if store is None:
+            self._update_filter_controls("oseries")
+            self._update_filter_controls("stresses")
+            self._update_filter_controls("models")
             return
 
         # Oseries Table
@@ -697,6 +991,10 @@ class PastastoreMainDock(QDockWidget):
             except Exception:
                 param_names = []
             self.populate_map_plot_combo(param_names)
+
+        self._update_filter_controls("oseries")
+        self._update_filter_controls("stresses")
+        self._update_filter_controls("models")
 
     def _update_ramp_preview(self):
         """Render a gradient pixmap for the currently selected color ramp."""

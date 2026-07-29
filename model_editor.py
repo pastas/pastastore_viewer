@@ -40,9 +40,12 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import Qt, QDate
 from qgis.core import QgsApplication, QgsMessageLog, Qgis
-from .plot_toolbar import PlotNavigationWidget
-
-from .i18n_helper import tr as _i18n_tr
+try:
+    from .plot_toolbar import PlotNavigationWidget
+    from .i18n_helper import tr as _i18n_tr
+except (ImportError, ValueError):
+    from plot_toolbar import PlotNavigationWidget
+    from i18n_helper import tr as _i18n_tr
 import pandas as pd
 import numpy as np
 import pastastore as pst

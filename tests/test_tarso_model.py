@@ -5,7 +5,11 @@ import sys
 from unittest.mock import MagicMock
 
 # Setup QGIS mocks to allow importing model_editor in non-QGIS environments
-class MockWidget:
+class MockWidgetMeta(type):
+    def __getattr__(cls, name):
+        return MagicMock()
+
+class MockWidget(metaclass=MockWidgetMeta):
     def __init__(self, *args, **kwargs):
         pass
     def __getattr__(self, name):
@@ -173,6 +177,9 @@ def test_tarso_model_ui_behavior():
                 "rfunc": "Gamma",
                 "inputs": [],
             }
+
+        def __getattr__(self, name):
+            return MagicMock()
             
         def get_current_setting(self):
             return self._current_setting

@@ -19,7 +19,10 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
     QLabel,
 )
-from .plot_toolbar import PlotNavigationWidget
+try:
+    from .plot_toolbar import PlotNavigationWidget
+except (ImportError, ValueError):
+    from plot_toolbar import PlotNavigationWidget
 
 
 try:

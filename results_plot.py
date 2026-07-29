@@ -33,7 +33,10 @@ import numpy as np
 import pandas as pd
 import pastas as ps
 
-from .plot_toolbar import PlotNavigationWidget
+try:
+    from .plot_toolbar import PlotNavigationWidget
+except (ImportError, ValueError):
+    from plot_toolbar import PlotNavigationWidget
 
 
 class ResultsPlotDialog(QDialog):

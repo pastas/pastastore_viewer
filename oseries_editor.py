@@ -30,7 +30,10 @@ from qgis.PyQt.QtGui import QColor, QPen
 from qgis.core import QgsApplication
 import pandas as pd
 import numpy as np
-from .plot_toolbar import PlotNavigationWidget
+try:
+    from .plot_toolbar import PlotNavigationWidget
+except (ImportError, ValueError):
+    from plot_toolbar import PlotNavigationWidget
 
 
 try:
