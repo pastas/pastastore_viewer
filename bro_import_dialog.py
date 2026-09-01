@@ -324,9 +324,11 @@ class BROImportDialog(QDialog):
         # Right side: Plot
         if HAS_PYQTGRAPH:
             right_widget = QGroupBox("Preview")
+            right_widget.setMinimumWidth(0)
             right_layout = QVBoxLayout()
 
             self.plot_widget = pg.PlotWidget(axisItems={"bottom": DateAxisItem()})
+            self.plot_widget.setMinimumWidth(0)
             self.plot_widget.setBackground("w")
             self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
 
@@ -343,6 +345,7 @@ class BROImportDialog(QDialog):
             right_widget.setLayout(right_layout)
             bottom_splitter.addWidget(right_widget)
 
+        bottom_splitter.setChildrenCollapsible(True)
         bottom_splitter.setStretchFactor(0, 1)
         bottom_splitter.setStretchFactor(1, 2)
         layout.addWidget(bottom_splitter, 2)

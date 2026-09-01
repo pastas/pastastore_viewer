@@ -374,9 +374,7 @@ class ResultsPlotDialog(QDialog):
         proxy = QGraphicsProxyWidget()
         proxy.setWidget(table_container)
         self.win.addItem(proxy, row=0, col=1, rowspan=2)
-        proxy.setMinimumWidth(
-            250 + Y_AXIS_WIDTH if not self.show_stderr else 350 + Y_AXIS_WIDTH
-        )
+        proxy.setMinimumWidth(0)
         proxy.setMaximumWidth(
             350 + Y_AXIS_WIDTH if not self.show_stderr else 450 + Y_AXIS_WIDTH
         )

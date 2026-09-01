@@ -1,7 +1,6 @@
 from qgis.PyQt.QtCore import Qt, QItemSelectionModel
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
-    QFrame,
     QHeaderView,
     QComboBox,
     QSizePolicy,
@@ -105,28 +104,39 @@ class PastastoreMainDock(QDockWidget):
         self.le_filename.setPlaceholderText(_tr("No store loaded"))
         self.layout.addWidget(self.le_filename)
 
-        # Top Actions Layout (row below filename)
-        top_layout = QHBoxLayout()
+        # Top Actions Layout (compact grid to allow narrower dock width)
+        top_layout = QGridLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setHorizontalSpacing(4)
+        top_layout.setVerticalSpacing(4)
 
         # Load Button
-        self.btn_load = QPushButton(_tr("Load Pastastore Zip"))
+        self.btn_load = QPushButton(_tr("Load"))
+        self.btn_load.setToolTip(_tr("Load Pastastore Zip"))
         self.btn_load.clicked.connect(lambda: self.load_requested.emit(""))
-        top_layout.addWidget(self.btn_load)
+        top_layout.addWidget(self.btn_load, 0, 0)
 
         # New Button
-        self.btn_new = QPushButton(_tr("New Pastastore"))
+        self.btn_new = QPushButton(_tr("New"))
+        self.btn_new.setToolTip(_tr("Create New Pastastore"))
         self.btn_new.clicked.connect(lambda: self.new_requested.emit())
-        top_layout.addWidget(self.btn_new)
+        top_layout.addWidget(self.btn_new, 0, 1)
 
         # Save Button
-        self.btn_save = QPushButton(_tr("Save Pastastore Zip"))
+        self.btn_save = QPushButton(_tr("Save"))
+        self.btn_save.setToolTip(_tr("Save Pastastore Zip"))
         self.btn_save.clicked.connect(lambda: self.save_requested.emit())
-        top_layout.addWidget(self.btn_save)
+        top_layout.addWidget(self.btn_save, 1, 0)
 
         # Settings Button
         self.btn_settings = QPushButton(_tr("Settings"))
         self.btn_settings.clicked.connect(lambda: self.settings_requested.emit())
-        top_layout.addWidget(self.btn_settings)
+        top_layout.addWidget(self.btn_settings, 1, 1)
+
+        # Let action buttons shrink when the dock is resized narrower.
+        for btn in [self.btn_load, self.btn_new, self.btn_save, self.btn_settings]:
+            btn.setMinimumWidth(0)
+            btn.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
 
         self.layout.addLayout(top_layout)
 
@@ -146,10 +156,10 @@ class PastastoreMainDock(QDockWidget):
         # Import button below oseries table
         oseries_button_layout = QHBoxLayout()
         self.btn_import = QToolButton()
-        self.btn_import.setText(_tr("Import Data"))
+        self.btn_import.setText(_tr("Import"))
         self.btn_import.setIcon(QgsApplication.getThemeIcon("/mActionAdd.svg"))
         self.btn_import.setToolTip(_tr("Import data from external sources"))
-        self.btn_import.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_import.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         import_menu = QMenu()
         import_bro_action = import_menu.addAction(_tr("Download from BRO"))
         import_bro_action.triggered.connect(lambda: self.import_bro_requested.emit())
@@ -172,12 +182,12 @@ class PastastoreMainDock(QDockWidget):
 
         stresses_button_layout = QHBoxLayout()
         self.btn_import_stresses = QToolButton()
-        self.btn_import_stresses.setText(_tr("Import Data"))
+        self.btn_import_stresses.setText(_tr("Import"))
         self.btn_import_stresses.setIcon(QgsApplication.getThemeIcon("/mActionAdd.svg"))
         self.btn_import_stresses.setToolTip(
             _tr("Import stress data from external sources")
         )
-        self.btn_import_stresses.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_import_stresses.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         stresses_import_menu = QMenu()
         import_knmi_action = stresses_import_menu.addAction(_tr("Download from KNMI"))
         import_knmi_action.triggered.connect(
@@ -226,13 +236,15 @@ class PastastoreMainDock(QDockWidget):
         var_row.addWidget(QLabel(_tr("Variable:")))
         self.combo_map_var = QComboBox()
         self.combo_map_var.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-        self.combo_map_var.setMinimumContentsLength(10)
+        self.combo_map_var.setMinimumContentsLength(4)
+        self.combo_map_var.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         var_row.addWidget(self.combo_map_var, 1)
         map_plot_layout.addLayout(var_row)
 
         ramp_row = QHBoxLayout()
         ramp_row.addWidget(QLabel(_tr("Color ramp:")))
         self.combo_map_ramp = QComboBox()
+        self.combo_map_ramp.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         ramp_names = [
             "RdYlGn", "Turbo", "Viridis", "Plasma", "Magma", "Inferno",
             "RdYlBu", "Spectral", "Blues", "Reds",
@@ -247,9 +259,11 @@ class PastastoreMainDock(QDockWidget):
 
         self.lbl_ramp_preview = QLabel()
         self.lbl_ramp_preview.setFixedHeight(18)
+        self.lbl_ramp_preview.setMinimumWidth(0)
+        self.lbl_ramp_preview.setScaledContents(True)
         self.lbl_ramp_preview.setSizePolicy(
-            self.lbl_ramp_preview.sizePolicy().horizontalPolicy(),
-            self.lbl_ramp_preview.sizePolicy().verticalPolicy(),
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Fixed,
         )
         map_plot_layout.addWidget(self.lbl_ramp_preview)
         self.combo_map_ramp.currentIndexChanged.connect(self._update_ramp_preview)
@@ -257,6 +271,8 @@ class PastastoreMainDock(QDockWidget):
         self._update_ramp_preview()
 
         self.btn_map_plot = QPushButton(_tr("Plot on Map"))
+        self.btn_map_plot.setMinimumWidth(0)
+        self.btn_map_plot.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.btn_map_plot.clicked.connect(
             lambda: self.map_plot_requested.emit(
                 self.combo_map_var.currentData() or "",
@@ -310,6 +326,7 @@ class PastastoreMainDock(QDockWidget):
         self.tabs.currentChanged.connect(self._on_tab_changed)
 
         self.layout.addWidget(self.tabs)
+        self.setMinimumWidth(0)
         self.setWidget(self.container)
 
     def _on_oseries_double_clicked(self, item):
@@ -411,19 +428,24 @@ class PastastoreMainDock(QDockWidget):
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(4)
 
+        bottom_row = QHBoxLayout()
+        bottom_row.setContentsMargins(0, 0, 0, 0)
+        bottom_row.setSpacing(4)
+
         combo_col = QComboBox()
         combo_col.setToolTip(_tr("Select column to filter"))
         combo_col.addItem(_tr("All Columns"), "")
+        combo_col.setMinimumWidth(0)
 
         le_filter = QLineEdit()
         le_filter.setPlaceholderText(_tr("Filter text or > < = expression..."))
         if hasattr(le_filter, "setClearButtonEnabled"):
             le_filter.setClearButtonEnabled(True)
+        le_filter.setMinimumWidth(0)
 
         btn_toggle = QToolButton()
-        btn_toggle.setText(_tr("Column Filters"))
-        btn_toggle.setCheckable(True)
-        btn_toggle.setToolTip(_tr("Toggle per-column filter inputs"))
+        btn_toggle.setText(_tr("Columns"))
+        btn_toggle.setToolTip(_tr("Open per-column filter dialog"))
         try:
             filter_icon = QgsApplication.getThemeIcon("/mActionFilter.svg")
             if not filter_icon.isNull():
@@ -441,22 +463,14 @@ class PastastoreMainDock(QDockWidget):
 
         top_row.addWidget(combo_col)
         top_row.addWidget(le_filter, 1)
-        top_row.addWidget(btn_toggle)
-        top_row.addWidget(btn_clear)
-        top_row.addWidget(lbl_count)
+
+        bottom_row.addWidget(btn_toggle)
+        bottom_row.addWidget(btn_clear)
+        bottom_row.addStretch()
+        bottom_row.addWidget(lbl_count)
 
         layout.addLayout(top_row)
-
-        panel = QFrame()
-        panel.setFrameShape(QFrame.Shape.StyledPanel)
-        panel.setVisible(False)
-        panel_layout = QGridLayout()
-        panel_layout.setContentsMargins(4, 4, 4, 4)
-        panel_layout.setSpacing(4)
-        panel.setLayout(panel_layout)
-        layout.addWidget(panel)
-
-        btn_toggle.toggled.connect(panel.setVisible)
+        layout.addLayout(bottom_row)
 
         self.filter_widgets[category] = {
             "group": group,
@@ -465,17 +479,101 @@ class PastastoreMainDock(QDockWidget):
             "btn_toggle": btn_toggle,
             "btn_clear": btn_clear,
             "lbl_count": lbl_count,
-            "panel": panel,
-            "panel_layout": panel_layout,
-            "column_inputs": {},
+            "column_filters": {},
         }
 
         le_filter.textChanged.connect(lambda text, cat=category: self._apply_filter(cat))
         combo_col.currentIndexChanged.connect(lambda index, cat=category: self._apply_filter(cat))
+        btn_toggle.clicked.connect(
+            lambda checked=False, cat=category: self._open_column_filters_popup(cat)
+        )
         btn_clear.clicked.connect(lambda checked=False, cat=category: self._clear_filter(cat))
 
         group.setLayout(layout)
         return group
+
+    def _open_column_filters_popup(self, category):
+        table = self._get_table_for_category(category)
+        if not table or category not in self.filter_widgets:
+            return
+
+        fw = self.filter_widgets[category]
+        headers = []
+        for c in range(table.columnCount()):
+            item = table.horizontalHeaderItem(c)
+            headers.append(item.text() if item else f"Column {c}")
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(_tr("Column Filters"))
+        dlg.setModal(True)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(6)
+
+        editors = {}
+        current = fw.get("column_filters", {})
+        for i, header_text in enumerate(headers):
+            lbl = QLabel(f"{header_text}:")
+            le = QLineEdit()
+            le.setPlaceholderText(_tr("Filter {0}...").format(header_text))
+            if hasattr(le, "setClearButtonEnabled"):
+                le.setClearButtonEnabled(True)
+            le.setText(current.get(header_text, ""))
+
+            row = i // 2
+            col = (i % 2) * 2
+            grid.addWidget(lbl, row, col)
+            grid.addWidget(le, row, col + 1)
+            editors[header_text] = le
+
+        layout.addLayout(grid)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        clear_btn = buttons.addButton(_tr("Clear All"), QDialogButtonBox.ButtonRole.ResetRole)
+        clear_btn.clicked.connect(lambda: [le.clear() for le in editors.values()])
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        dlg.adjustSize()
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        new_filters = fw.get("column_filters", {}).copy()
+        for header_text, le in editors.items():
+            new_filters[header_text] = le.text()
+        fw["column_filters"] = new_filters
+
+        self._update_column_filter_button(category)
+        self._apply_filter(category)
+
+    def _update_column_filter_button(self, category):
+        fw = self.filter_widgets.get(category)
+        if not fw:
+            return
+
+        count = 0
+        for value in fw.get("column_filters", {}).values():
+            if str(value).strip():
+                count += 1
+
+        btn = fw.get("btn_toggle")
+        if not btn:
+            return
+
+        if count > 0:
+            btn.setText(_tr("Columns ({0})").format(count))
+        else:
+            btn.setText(_tr("Columns"))
 
     def _update_filter_controls(self, category):
         table = self._get_table_for_category(category)
@@ -484,16 +582,7 @@ class PastastoreMainDock(QDockWidget):
 
         fw = self.filter_widgets[category]
         combo_col = fw["combo_col"]
-        panel_layout = fw["panel_layout"]
-        old_inputs = fw["column_inputs"]
-
-        saved_texts = {col: le.text() for col, le in old_inputs.items()}
-
-        while panel_layout.count():
-            child = panel_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-        fw["column_inputs"] = {}
+        saved_texts = fw.get("column_filters", {})
 
         combo_col.blockSignals(True)
         current_sel = combo_col.currentData()
@@ -515,22 +604,11 @@ class PastastoreMainDock(QDockWidget):
             combo_col.setCurrentIndex(0)
         combo_col.blockSignals(False)
 
-        for i, header_text in enumerate(col_headers):
-            lbl = QLabel(f"{header_text}:")
-            le = QLineEdit()
-            le.setPlaceholderText(_tr("Filter {0}...").format(header_text))
-            if hasattr(le, "setClearButtonEnabled"):
-                le.setClearButtonEnabled(True)
-            if header_text in saved_texts:
-                le.setText(saved_texts[header_text])
-            le.textChanged.connect(lambda text, cat=category: self._apply_filter(cat))
+        fw["column_filters"] = {
+            header_text: saved_texts.get(header_text, "") for header_text in col_headers
+        }
 
-            row = i // 2
-            col = (i % 2) * 2
-            panel_layout.addWidget(lbl, row, col)
-            panel_layout.addWidget(le, row, col + 1)
-            fw["column_inputs"][header_text] = le
-
+        self._update_column_filter_button(category)
         self._apply_filter(category)
 
     def _clear_filter(self, category):
@@ -541,15 +619,15 @@ class PastastoreMainDock(QDockWidget):
         fw["le_filter"].clear()
         fw["le_filter"].blockSignals(False)
 
-        for le in fw["column_inputs"].values():
-            le.blockSignals(True)
-            le.clear()
-            le.blockSignals(False)
+        fw["column_filters"] = {
+            key: "" for key in fw.get("column_filters", {})
+        }
 
         fw["combo_col"].blockSignals(True)
         fw["combo_col"].setCurrentIndex(0)
         fw["combo_col"].blockSignals(False)
 
+        self._update_column_filter_button(category)
         self._apply_filter(category)
 
     @staticmethod
@@ -615,7 +693,7 @@ class PastastoreMainDock(QDockWidget):
         fw = self.filter_widgets[category]
         main_text = fw["le_filter"].text().strip()
         target_col = fw["combo_col"].currentData()
-        col_inputs = fw["column_inputs"]
+        col_filters = fw.get("column_filters", {})
 
         total_rows = table.rowCount()
         if total_rows == 0:
@@ -653,8 +731,8 @@ class PastastoreMainDock(QDockWidget):
                         row_matches = False
 
             if row_matches:
-                for header_name, le in col_inputs.items():
-                    col_filter_text = le.text().strip()
+                for header_name, raw_filter in col_filters.items():
+                    col_filter_text = str(raw_filter).strip()
                     if col_filter_text:
                         col_idx = col_index_map.get(header_name)
                         if col_idx is not None:
@@ -670,7 +748,9 @@ class PastastoreMainDock(QDockWidget):
 
         table.setSortingEnabled(True)
 
-        if main_text or any(le.text().strip() for le in col_inputs.values()):
+        self._update_column_filter_button(category)
+
+        if main_text or any(str(val).strip() for val in col_filters.values()):
             fw["lbl_count"].setText(f"{visible_count} / {total_rows}")
         else:
             fw["lbl_count"].setText(f"{total_rows}")
@@ -934,8 +1014,8 @@ class PastastoreMainDock(QDockWidget):
                         item.setText(str(val))
                     self.table_oseries.setItem(i, j + 1, item)
             self.table_oseries.setSortingEnabled(True)
-            # Set Name column width
-            self.table_oseries.setColumnWidth(0, 200)
+            # Set a compact default Name column width.
+            self.table_oseries.setColumnWidth(0, 120)
 
         # Stresses Table
         if hasattr(store, "stresses") and len(store.stresses.index) > 0:
@@ -959,8 +1039,8 @@ class PastastoreMainDock(QDockWidget):
                         item.setText(str(val))
                     self.table_stresses.setItem(i, j + 1, item)
             self.table_stresses.setSortingEnabled(True)
-            # Set Name column width
-            self.table_stresses.setColumnWidth(0, 200)
+            # Set a compact default Name column width.
+            self.table_stresses.setColumnWidth(0, 120)
 
         # Models Table
         if hasattr(store, "model_names") and len(store.model_names) > 0:
@@ -988,8 +1068,8 @@ class PastastoreMainDock(QDockWidget):
                 self.table_models.setItem(i, 1, QTableWidgetItem(oseries_name))
                 for j, stat in enumerate(self._model_extra_cols):
                     self.table_models.setItem(i, j + 2, QTableWidgetItem("…"))
-            self.table_models.setColumnWidth(0, 200)
-            self.table_models.setColumnWidth(1, 200)
+            self.table_models.setColumnWidth(0, 120)
+            self.table_models.setColumnWidth(1, 120)
             self.table_models.setSortingEnabled(True)
             # Re-request computation for all extra cols
             for stat in self._model_extra_cols:
@@ -1016,7 +1096,7 @@ class PastastoreMainDock(QDockWidget):
             return
         if invert:
             ramp.invert()
-        w, h = max(self.lbl_ramp_preview.width(), 256), 18
+        w, h = 256, 18
         pixmap = QPixmap(w, h)
         painter = QPainter(pixmap)
         gradient = QLinearGradient(0, 0, w, 0)

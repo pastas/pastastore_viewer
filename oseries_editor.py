@@ -257,8 +257,10 @@ class OseriesEditorDialog(QDialog):
         self.table.customContextMenuRequested.connect(self._show_table_context_menu)
         self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
         self.table.itemChanged.connect(self._on_table_item_changed)
+        self.table.setMinimumWidth(0)
         splitter.addWidget(self.table)
 
+        splitter.setChildrenCollapsible(True)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
         splitter.setSizes([960, 240])
