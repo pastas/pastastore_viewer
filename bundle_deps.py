@@ -24,11 +24,11 @@ import shutil
 #   - "package @ git+https://github.com/user/repo@commit"
 #   - Or just "package" for latest
 DEFAULT_PACKAGES = [
-    "pastastore @ git+https://github.com/pastas/pastastore@dev",
-    "pastas @ git+https://github.com/pastas/pastas@dev",
+    "pastastore==2.0.0",
+    "pastas==2.0.0",
     "pyqtgraph",
     "brodata==0.1.8",
-    "hydropandas @ git+https://github.com/ArtesiaWater/hydropandas@96c55a6db0cbb22e643917aeadfc8e079a310328",
+    "hydropandas==0.20.1",
 ]
 
 
