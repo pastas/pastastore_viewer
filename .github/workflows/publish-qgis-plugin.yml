@@ -41,6 +41,7 @@ jobs:
           rsync -a ./ "build/${PLUGIN_FOLDER}/" \
             --exclude .git \
             --exclude .github \
+            --exclude .gitignore \
             --exclude __pycache__ \
             --exclude '*.pyc' \
             --exclude '*.pyo' \
@@ -48,7 +49,15 @@ jobs:
             --exclude .venv \
             --exclude build \
             --exclude tests \
-            --exclude license_server
+            --exclude license_server \
+            --exclude licenses \
+            --exclude bundle_deps.py \
+            --exclude run_tests.py \
+            --exclude pytest.ini \
+            --exclude TESTING.md \
+            --exclude requirements.txt \
+            --exclude tests-requirements.txt
+
 
           (
             cd build
