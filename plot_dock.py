@@ -1,24 +1,13 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
+from qgis.PyQt.QtCore import Qt
 
 # -*- coding: utf-8 -*-
-
 from qgis.PyQt.QtWidgets import (
     QDockWidget,
+    QLabel,
     QVBoxLayout,
     QWidget,
-    QLabel,
 )
+
 try:
     from .plot_toolbar import PlotNavigationWidget
 except (ImportError, ValueError):
@@ -31,8 +20,8 @@ try:
 except ImportError:
     pg = None
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 
 
 class PastastorePlotDock(QDockWidget):
@@ -41,7 +30,9 @@ class PastastorePlotDock(QDockWidget):
     def __init__(self, parent=None):
         super(PastastorePlotDock, self).__init__("Pastastore Plot", parent)
         self.setObjectName("PastastorePlotDock")
-        self.setAllowedAreas(Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.TopDockWidgetArea)
+        self.setAllowedAreas(
+            Qt.DockWidgetArea.BottomDockWidgetArea | Qt.DockWidgetArea.TopDockWidgetArea
+        )
 
         # Container widget
         self.container = QWidget()
@@ -87,7 +78,7 @@ class PastastorePlotDock(QDockWidget):
 
         x = series.index
         if pd.api.types.is_datetime64_any_dtype(x):
-            x = x.astype('datetime64[s]').astype(np.int64)
+            x = x.astype("datetime64[s]").astype(np.int64)
 
         y = series.values
         if len(y.shape) > 1 and y.shape[1] == 1:
@@ -111,7 +102,7 @@ class PastastorePlotDock(QDockWidget):
                 items.append((name, df))
         elif isinstance(data, list):
             for i, d in enumerate(data):
-                label = f"Series {i+1}"
+                label = f"Series {i + 1}"
                 if hasattr(d, "name") and d.name:
                     label = d.name
                 items.append((label, d))

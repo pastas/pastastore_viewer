@@ -1,46 +1,37 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
+import numpy as np
+from qgis.core import QgsApplication, QgsStyle
+from qgis.PyQt.QtCore import QItemSelectionModel, Qt, pyqtSignal
+from qgis.PyQt.QtGui import QLinearGradient, QPainter, QPixmap
 
 # -*- coding: utf-8 -*-
-
 from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDockWidget,
-    QVBoxLayout,
-    QWidget,
-    QLabel,
-    QPushButton,
-    QTabWidget,
-    QTableWidget,
-    QTableWidgetItem,
+    QGridLayout,
+    QGroupBox,
     QHBoxLayout,
+    QHeaderView,
+    QLabel,
     QLineEdit,
     QMenu,
+    QPushButton,
+    QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
     QToolButton,
-    QComboBox,
-    QGroupBox,
-    QCheckBox,
-    QGridLayout,
+    QVBoxLayout,
+    QWidget,
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
-from qgis.PyQt.QtGui import QLinearGradient, QPainter, QPixmap
-from qgis.core import QgsApplication, QgsStyle
-import pandas as pd
-import numpy as np
 
 try:
     from .i18n_helper import tr as _i18n_tr
 except ImportError:
     from i18n_helper import tr as _i18n_tr
-
 
 
 if hasattr(QToolButton, "InstantPopup"):
@@ -86,7 +77,9 @@ class PastastoreMainDock(QDockWidget):
     def __init__(self, parent=None):
         super(PastastoreMainDock, self).__init__(_tr("Pastastore Viewer"), parent)
         self.setObjectName("PastastoreMainDock")
-        self.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea)
+        self.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea
+        )
 
         # State
         self.is_restoring = False
@@ -146,17 +139,17 @@ class PastastoreMainDock(QDockWidget):
 
         # Tabs for lists
         self.tabs = QTabWidget()
-        
+
         # Create oseries tab with toolbar
         oseries_widget = QWidget()
         oseries_layout = QVBoxLayout()
         oseries_layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Oseries filter & table
         self.table_oseries = QTableWidget()
         oseries_layout.addWidget(self._create_filter_bar("oseries"))
         oseries_layout.addWidget(self.table_oseries)
-        
+
         # Import button below oseries table
         oseries_button_layout = QHBoxLayout()
         self.btn_import = QToolButton()
@@ -172,9 +165,9 @@ class PastastoreMainDock(QDockWidget):
         oseries_button_layout.addWidget(self.btn_import)
         oseries_button_layout.addStretch()
         oseries_layout.addLayout(oseries_button_layout)
-        
+
         oseries_widget.setLayout(oseries_layout)
-        
+
         # Create stresses tab with toolbar
         stresses_widget = QWidget()
         stresses_layout = QVBoxLayout()
@@ -191,12 +184,12 @@ class PastastoreMainDock(QDockWidget):
         self.btn_import_stresses.setToolTip(
             _tr("Import stress data from external sources")
         )
-        self.btn_import_stresses.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.btn_import_stresses.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonIconOnly
+        )
         stresses_import_menu = QMenu()
         import_knmi_action = stresses_import_menu.addAction(_tr("Download from KNMI"))
-        import_knmi_action.triggered.connect(
-            lambda: self.import_knmi_requested.emit()
-        )
+        import_knmi_action.triggered.connect(lambda: self.import_knmi_requested.emit())
         self.btn_import_stresses.setMenu(stresses_import_menu)
         self.btn_import_stresses.setPopupMode(TOOLBUTTON_POPUP_INSTANT)
         stresses_button_layout.addWidget(self.btn_import_stresses)
@@ -213,9 +206,15 @@ class PastastoreMainDock(QDockWidget):
         models_layout.setContentsMargins(0, 0, 0, 0)
 
         self.table_models = QTableWidget()
-        self.table_models.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table_models.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.table_models.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table_models.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
+        self.table_models.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self.table_models.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive
+        )
         self.table_models.horizontalHeader().setStretchLastSection(True)
         self.table_models.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_models.setSortingEnabled(True)
@@ -223,7 +222,9 @@ class PastastoreMainDock(QDockWidget):
         self.table_models.setColumnCount(2)
         self.table_models.setHorizontalHeaderLabels(["Name", "Oseries"])
         # Right-click on header to add/remove stat columns
-        self.table_models.horizontalHeader().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_models.horizontalHeader().setContextMenuPolicy(
+            Qt.ContextMenuPolicy.CustomContextMenu
+        )
         self.table_models.horizontalHeader().customContextMenuRequested.connect(
             self._show_models_header_menu
         )
@@ -239,19 +240,33 @@ class PastastoreMainDock(QDockWidget):
         var_row = QHBoxLayout()
         var_row.addWidget(QLabel(_tr("Variable:")))
         self.combo_map_var = QComboBox()
-        self.combo_map_var.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.combo_map_var.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.combo_map_var.setMinimumContentsLength(4)
-        self.combo_map_var.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.combo_map_var.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+        )
         var_row.addWidget(self.combo_map_var, 1)
         map_plot_layout.addLayout(var_row)
 
         ramp_row = QHBoxLayout()
         ramp_row.addWidget(QLabel(_tr("Color ramp:")))
         self.combo_map_ramp = QComboBox()
-        self.combo_map_ramp.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.combo_map_ramp.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+        )
         ramp_names = [
-            "RdYlGn", "Turbo", "Viridis", "Plasma", "Magma", "Inferno",
-            "RdYlBu", "Spectral", "Blues", "Reds",
+            "RdYlGn",
+            "Turbo",
+            "Viridis",
+            "Plasma",
+            "Magma",
+            "Inferno",
+            "RdYlBu",
+            "Spectral",
+            "Blues",
+            "Reds",
         ]
         for ramp_name in ramp_names:
             self.combo_map_ramp.addItem(ramp_name, ramp_name)
@@ -276,7 +291,9 @@ class PastastoreMainDock(QDockWidget):
 
         self.btn_map_plot = QPushButton(_tr("Plot on Map"))
         self.btn_map_plot.setMinimumWidth(0)
-        self.btn_map_plot.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.btn_map_plot.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
+        )
         self.btn_map_plot.clicked.connect(
             lambda: self.map_plot_requested.emit(
                 self.combo_map_var.currentData() or "",
@@ -295,7 +312,9 @@ class PastastoreMainDock(QDockWidget):
             table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
             table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
             # Allow resizing
-            table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            table.horizontalHeader().setSectionResizeMode(
+                QHeaderView.ResizeMode.Interactive
+            )
             table.horizontalHeader().setStretchLastSection(True)
             table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
             table.setSortingEnabled(True)
@@ -382,7 +401,7 @@ class PastastoreMainDock(QDockWidget):
         return menu.exec(global_pos)
 
     def _show_models_header_menu(self, position):
-        from qgis.PyQt.QtWidgets import QMenu, QAction
+        from qgis.PyQt.QtWidgets import QAction, QMenu
 
         menu = QMenu()
 
@@ -411,7 +430,9 @@ class PastastoreMainDock(QDockWidget):
                 remove_menu.addAction(action)
             menu.addMenu(remove_menu)
 
-        self._exec_menu(menu, self.table_models.horizontalHeader().mapToGlobal(position))
+        self._exec_menu(
+            menu, self.table_models.horizontalHeader().mapToGlobal(position)
+        )
 
     def _get_table_for_category(self, category):
         if category == "oseries":
@@ -454,7 +475,9 @@ class PastastoreMainDock(QDockWidget):
             filter_icon = QgsApplication.getThemeIcon("/mActionFilter.svg")
             if not filter_icon.isNull():
                 btn_toggle.setIcon(filter_icon)
-                btn_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                btn_toggle.setToolButtonStyle(
+                    Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+                )
         except Exception:
             pass
 
@@ -486,12 +509,18 @@ class PastastoreMainDock(QDockWidget):
             "column_filters": {},
         }
 
-        le_filter.textChanged.connect(lambda text, cat=category: self._apply_filter(cat))
-        combo_col.currentIndexChanged.connect(lambda index, cat=category: self._apply_filter(cat))
+        le_filter.textChanged.connect(
+            lambda text, cat=category: self._apply_filter(cat)
+        )
+        combo_col.currentIndexChanged.connect(
+            lambda index, cat=category: self._apply_filter(cat)
+        )
         btn_toggle.clicked.connect(
             lambda checked=False, cat=category: self._open_column_filters_popup(cat)
         )
-        btn_clear.clicked.connect(lambda checked=False, cat=category: self._clear_filter(cat))
+        btn_clear.clicked.connect(
+            lambda checked=False, cat=category: self._clear_filter(cat)
+        )
 
         group.setLayout(layout)
         return group
@@ -541,7 +570,9 @@ class PastastoreMainDock(QDockWidget):
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        clear_btn = buttons.addButton(_tr("Clear All"), QDialogButtonBox.ButtonRole.ResetRole)
+        clear_btn = buttons.addButton(
+            _tr("Clear All"), QDialogButtonBox.ButtonRole.ResetRole
+        )
         clear_btn.clicked.connect(lambda: [le.clear() for le in editors.values()])
         buttons.accepted.connect(dlg.accept)
         buttons.rejected.connect(dlg.reject)
@@ -623,9 +654,7 @@ class PastastoreMainDock(QDockWidget):
         fw["le_filter"].clear()
         fw["le_filter"].blockSignals(False)
 
-        fw["column_filters"] = {
-            key: "" for key in fw.get("column_filters", {})
-        }
+        fw["column_filters"] = {key: "" for key in fw.get("column_filters", {})}
 
         fw["combo_col"].blockSignals(True)
         fw["combo_col"].setCurrentIndex(0)
@@ -806,7 +835,7 @@ class PastastoreMainDock(QDockWidget):
         self._apply_filter("models")
 
     def show_oseries_context_menu(self, position):
-        from qgis.PyQt.QtWidgets import QMenu, QAction
+        from qgis.PyQt.QtWidgets import QAction, QMenu
 
         selected_items = self.table_oseries.selectedItems()
         if not selected_items:
@@ -862,7 +891,7 @@ class PastastoreMainDock(QDockWidget):
         self._exec_menu(menu, self.table_oseries.mapToGlobal(position))
 
     def show_stresses_context_menu(self, position):
-        from qgis.PyQt.QtWidgets import QMenu, QAction
+        from qgis.PyQt.QtWidgets import QAction, QMenu
 
         selected_items = self.table_stresses.selectedItems()
         if not selected_items:
@@ -899,7 +928,7 @@ class PastastoreMainDock(QDockWidget):
         self._exec_menu(menu, self.table_stresses.mapToGlobal(position))
 
     def show_model_context_menu(self, position):
-        from qgis.PyQt.QtWidgets import QMenu, QAction
+        from qgis.PyQt.QtWidgets import QAction, QMenu
 
         item = self.table_models.itemAt(position)
         if item is not None:
@@ -912,12 +941,14 @@ class PastastoreMainDock(QDockWidget):
             ]:
                 self.table_models.selectRow(row)
 
-        rows = sorted(
-            set(i.row() for i in self.table_models.selectedItems())
-        )
+        rows = sorted(set(i.row() for i in self.table_models.selectedItems()))
         if not rows:
             return
-        names = [self.table_models.item(r, 0).text() for r in rows if self.table_models.item(r, 0)]
+        names = [
+            self.table_models.item(r, 0).text()
+            for r in rows
+            if self.table_models.item(r, 0)
+        ]
         if not names:
             return
 
@@ -968,7 +999,9 @@ class PastastoreMainDock(QDockWidget):
         menu.addAction(select_oseries_action)
 
         select_stresses_action = QAction(_tr("Select Stresses"), self)
-        select_stresses_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))
+        select_stresses_action.setIcon(
+            QgsApplication.getThemeIcon("/mActionSelect.svg")
+        )
         select_stresses_action.triggered.connect(
             lambda: self.select_stresses_for_models_requested.emit(names)
         )
@@ -976,9 +1009,7 @@ class PastastoreMainDock(QDockWidget):
 
         delete_action = QAction(_tr("Delete Model(s)"), self)
         delete_action.setIcon(QgsApplication.getThemeIcon("/mActionDeleteSelected.svg"))
-        delete_action.triggered.connect(
-            lambda: self.delete_model_requested.emit(names)
-        )
+        delete_action.triggered.connect(lambda: self.delete_model_requested.emit(names))
         menu.addAction(delete_action)
 
         self._exec_menu(menu, self.table_models.mapToGlobal(position))
@@ -1323,4 +1354,3 @@ class PastastoreMainDock(QDockWidget):
             except:
                 pass
             self.visibilityChanged.connect(self.save_state_to_project)
-

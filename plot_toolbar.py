@@ -1,20 +1,11 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
-
-from qgis.PyQt.QtWidgets import QWidget, QHBoxLayout, QPushButton, QSizePolicy
-from qgis.PyQt.QtCore import QEvent
 from qgis.core import QgsApplication
-
+from qgis.PyQt.QtCore import QEvent, Qt
+from qgis.PyQt.QtWidgets import (
+    QHBoxLayout,
+    QPushButton,
+    QSizePolicy,
+    QWidget,
+)
 
 
 class PlotNavigationWidget(QWidget):
@@ -57,7 +48,9 @@ class PlotNavigationWidget(QWidget):
         self.btn_pan.setCheckable(True)
         self.btn_zoom.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.btn_pan.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.btn_zoom_all.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.btn_zoom_all.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
         self.btn_zoom.setMaximumWidth(40)
         self.btn_pan.setMaximumWidth(40)
         self.btn_zoom_all.setMaximumWidth(40)
@@ -148,7 +141,9 @@ class PlotNavigationWidget(QWidget):
         if resize_type is None:
             resize_type = getattr(getattr(QEvent, "Type", None), "Resize", 14)
 
-        if obj is getattr(self, "_anchor_widget", None) and int(event.type()) == int(resize_type):
+        if obj is getattr(self, "_anchor_widget", None) and int(event.type()) == int(
+            resize_type
+        ):
             self.move(self._anchor_offset[0], self._anchor_offset[1])
             self.raise_()
         return False

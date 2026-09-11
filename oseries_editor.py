@@ -1,37 +1,27 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
+import numpy as np
+import pandas as pd
+from qgis.core import QgsApplication
+from qgis.PyQt.QtCore import QDateTime, QItemSelectionModel, QRectF, Qt
+from qgis.PyQt.QtGui import QColor, QPen
 
 # -*- coding: utf-8 -*-
-
 from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QAction,
     QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
     QGraphicsRectItem,
+    QHBoxLayout,
+    QHeaderView,
+    QInputDialog,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
-    QMessageBox,
-    QInputDialog,
-    QSplitter,
-    QAction,
-    QMenu,
+    QVBoxLayout,
 )
-from qgis.PyQt.QtCore import QDateTime, QRectF
-from qgis.PyQt.QtGui import QColor, QPen
-from qgis.core import QgsApplication
-import pandas as pd
-import numpy as np
+
 try:
     from .plot_toolbar import PlotNavigationWidget
 except (ImportError, ValueError):
@@ -236,7 +226,11 @@ class OseriesEditorDialog(QDialog):
                 ax.setPen("k")
                 ax.setTextPen("k")
 
-            type_title = "Stress" if getattr(self, "series_type", "oseries") == "stress" else "Oseries"
+            type_title = (
+                "Stress"
+                if getattr(self, "series_type", "oseries") == "stress"
+                else "Oseries"
+            )
             self.plot_widget.setTitle(f"{type_title}: {self.oseries_name}", color="k")
             splitter.addWidget(self.plot_widget)
 
@@ -248,7 +242,9 @@ class OseriesEditorDialog(QDialog):
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(["DateTime", "Value"])
         self.table.verticalHeader().setVisible(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Interactive
+        )
         self.table.setColumnWidth(0, 120)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -435,7 +431,9 @@ class OseriesEditorDialog(QDialog):
                         first_selected_item = item
                     index = self.table.model().index(row, 0)
                     selection_model.select(
-                        index, QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
+                        index,
+                        QItemSelectionModel.SelectionFlag.Select
+                        | QItemSelectionModel.SelectionFlag.Rows,
                     )
             if first_selected_item is not None:
                 self.table.scrollToItem(
@@ -578,7 +576,9 @@ class OseriesEditorDialog(QDialog):
         if not selected_rows:
             valid_data = self.series_data.dropna()
             if valid_data.empty:
-                QMessageBox.warning(self, "No Data", "No measurements available to edit.")
+                QMessageBox.warning(
+                    self, "No Data", "No measurements available to edit."
+                )
                 return
 
             reply = QMessageBox.question(
@@ -643,10 +643,14 @@ class OseriesEditorDialog(QDialog):
                         first_selected = item
                     index = self.table.model().index(row, 0)
                     selection_model.select(
-                        index, QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows
+                        index,
+                        QItemSelectionModel.SelectionFlag.Select
+                        | QItemSelectionModel.SelectionFlag.Rows,
                     )
             if first_selected is not None:
-                self.table.scrollToItem(first_selected, QAbstractItemView.ScrollHint.EnsureVisible)
+                self.table.scrollToItem(
+                    first_selected, QAbstractItemView.ScrollHint.EnsureVisible
+                )
         finally:
             self.table.blockSignals(False)
             self._syncing_selection = False
@@ -773,7 +777,9 @@ class OseriesEditorDialog(QDialog):
             self,
             "Unsaved Changes",
             "Some measurements were edited. Keep these changes?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Yes
+            | QMessageBox.StandardButton.No
+            | QMessageBox.StandardButton.Cancel,
             QMessageBox.StandardButton.Yes,
         )
 

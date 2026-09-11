@@ -1,55 +1,44 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
+from qgis.core import Qgis, QgsApplication, QgsMessageLog
+from qgis.PyQt.QtCore import QDate, Qt
 
 # -*- coding: utf-8 -*-
 # Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
 # This software is proprietary. See LICENSE.md for details.
-
 from qgis.PyQt.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QFormLayout,
-    QLineEdit,
-    QDialogButtonBox,
-    QLabel,
+    QApplication,
     QCheckBox,
-    QGroupBox,
     QComboBox,
-    QMessageBox,
-    QWidget,
+    QDateEdit,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QGroupBox,
     QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
     QListWidget,
+    QMessageBox,
+    QProgressDialog,
     QPushButton,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
-    QDateEdit,
-    QProgressDialog,
-    QApplication,
-    QFileDialog,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
 )
-from qgis.PyQt.QtCore import Qt, QDate
-from qgis.core import QgsApplication, QgsMessageLog, Qgis
+
 try:
-    from .plot_toolbar import PlotNavigationWidget
     from .i18n_helper import tr as _i18n_tr
+    from .plot_toolbar import PlotNavigationWidget
 except (ImportError, ValueError):
-    from plot_toolbar import PlotNavigationWidget
     from i18n_helper import tr as _i18n_tr
-import pandas as pd
+    from plot_toolbar import PlotNavigationWidget
 import numpy as np
-import pastastore as pst
+import pandas as pd
 import pastas as ps
+import pastastore as pst
 import pyqtgraph as pg
 from pyqtgraph import DateAxisItem
 
@@ -62,6 +51,7 @@ def _apply_scipy_callback_patch():
     """Patch pastas least_squares calls for scipy versions without callback support."""
     try:
         import inspect
+
         from scipy.optimize import least_squares as _orig_ls
 
         if "callback" in inspect.signature(_orig_ls).parameters:
@@ -236,7 +226,9 @@ class ModelEditorDialog(QDialog):
         self.table_params.setHorizontalHeaderLabels(
             ["initial", "optimal", "pmin", "pmax", "vary", "stderr"]
         )
-        self.table_params.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table_params.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
         self.vbox_params.addWidget(self.table_params)
         self.tabs.addTab(self.tab_parameters, _tr("Parameters"))
 
@@ -346,11 +338,14 @@ class ModelEditorDialog(QDialog):
         self.btn_save_pas.clicked.connect(self.save_as_pas)
 
         self.button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+            QDialogButtonBox.StandardButton.Save
+            | QDialogButtonBox.StandardButton.Cancel
         )
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
-        self.button_box.button(QDialogButtonBox.StandardButton.Save).setText(_tr("Save Model"))
+        self.button_box.button(QDialogButtonBox.StandardButton.Save).setText(
+            _tr("Save Model")
+        )
         self.button_box.button(QDialogButtonBox.StandardButton.Save).setIcon(
             QgsApplication.getThemeIcon("/mActionFileSave.svg")
         )
@@ -407,7 +402,9 @@ class ModelEditorDialog(QDialog):
                 self.table_params.setRowCount(len(df))
                 for i, (idx, row) in enumerate(df.iterrows()):
                     # Row Header
-                    self.table_params.setVerticalHeaderItem(i, QTableWidgetItem(str(idx)))
+                    self.table_params.setVerticalHeaderItem(
+                        i, QTableWidgetItem(str(idx))
+                    )
 
                     # Cols
                     cols = ["initial", "optimal", "pmin", "pmax", "vary", "stderr"]
@@ -1058,13 +1055,11 @@ class ModelEditorDialog(QDialog):
                 QMessageBox.information(
                     self,
                     _tr("Success"),
-                    _tr("Model successfully saved to:\n{}").format(filename)
+                    _tr("Model successfully saved to:\n{}").format(filename),
                 )
             except Exception as e:
                 QMessageBox.critical(
-                    self,
-                    _tr("Error"),
-                    _tr("Failed to save model: {}").format(str(e))
+                    self, _tr("Error"), _tr("Failed to save model: {}").format(str(e))
                 )
 
     def get_model_data(self):

@@ -1,59 +1,46 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
+import json
+import os.path
+
+import numpy as np
+import pandas as pd
+from qgis.core import (
+    Qgis,
+    QgsCoordinateReferenceSystem,
+    QgsFeature,
+    QgsFeatureRequest,
+    QgsField,
+    QgsGeometry,
+    QgsGraduatedSymbolRenderer,
+    QgsLayerTreeLayer,
+    QgsPalLayerSettings,
+    QgsPointXY,
+    QgsProject,
+    QgsStyle,
+    QgsTextFormat,
+    QgsVectorLayer,
+    QgsVectorLayerSimpleLabeling,
 )
 
 # -*- coding: utf-8 -*-
 # Copyright © 2024-2026 Pastastore Viewer Contributors. All rights reserved.
 # This software is proprietary. See LICENSE.md for details.
-
-from qgis.PyQt.QtCore import QVariant
+from qgis.PyQt.QtCore import Qt, QUrl, QVariant
+from qgis.PyQt.QtGui import QDesktopServices, QIcon
 from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
     QAction,
+    QApplication,
+    QDialog,
     QFileDialog,
+    QHBoxLayout,
+    QInputDialog,
     QMessageBox,
     QProgressDialog,
-    QApplication,
-    QInputDialog,
-    QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
+    QVBoxLayout,
 )
-from qgis.PyQt.QtCore import QUrl
-from qgis.PyQt.QtGui import QDesktopServices
-from qgis.PyQt.QtGui import QIcon
-from qgis.core import (
-    Qgis,
-    QgsProject,
-    QgsVectorLayer,
-    QgsField,
-    QgsFeature,
-    QgsGeometry,
-    QgsPointXY,
-    QgsLayerTreeLayer,
-    QgsFeatureRequest,
-    QgsCoordinateReferenceSystem,
-    QgsGraduatedSymbolRenderer,
-    QgsStyle,
-    QgsPalLayerSettings,
-    QgsVectorLayerSimpleLabeling,
-    QgsTextFormat,
-)
-import os.path
-import json
-import pandas as pd
-import numpy as np
 
 # Try to import pastastore and pyqtgraph
 try:
@@ -77,23 +64,22 @@ try:
 except ImportError:
     HAS_PYQTGRAPH = False
 
-from .main_dock import PastastoreMainDock
-from .plot_dock import PastastorePlotDock
-from .settings_dialog import PastastoreSettingsDialog
-from .model_editor import ModelEditorDialog, _apply_scipy_callback_patch
-from .results_plot import ResultsPlotDialog
-from .diagnostics_plot import DiagnosticsPlotDialog
-from .oseries_editor import OseriesEditorDialog
 from .bro_import_dialog import BROImportDialog
-from .knmi_import_dialog import KNMIImportDialog
 from .bulk_models_dialog import BulkModelsDialog
-from .license_manager import LicenseManager, FEATURE_PRO, FEATURE_PRONL
+from .diagnostics_plot import DiagnosticsPlotDialog
+from .knmi_import_dialog import KNMIImportDialog
+from .license_manager import FEATURE_PRO, FEATURE_PRONL, LicenseManager
+from .main_dock import PastastoreMainDock
+from .model_editor import ModelEditorDialog, _apply_scipy_callback_patch
+from .oseries_editor import OseriesEditorDialog
+from .plot_dock import PastastorePlotDock
+from .results_plot import ResultsPlotDialog
+from .settings_dialog import PastastoreSettingsDialog
 
 try:
     from .i18n_helper import tr as _i18n_tr
 except ImportError:
     from i18n_helper import tr as _i18n_tr
-
 
 
 def _tr(message):
@@ -257,7 +243,9 @@ class PastastoreViewer:
                     return bar.pushCritical(title, text)
                 if msg_level == Qgis.MessageLevel.Warning:
                     return bar.pushWarning(title, text)
-                if msg_level == Qgis.MessageLevel.Success and hasattr(bar, "pushSuccess"):
+                if msg_level == Qgis.MessageLevel.Success and hasattr(
+                    bar, "pushSuccess"
+                ):
                     return bar.pushSuccess(title, text)
                 return bar.pushInfo(title, text)
 
@@ -300,6 +288,7 @@ class PastastoreViewer:
 
         # Defer online license validation at startup to prevent blocking QGIS main thread
         from qgis.PyQt.QtCore import QTimer
+
         QTimer.singleShot(1000, lambda: self.validate_license_online(silent=True))
 
     def unload(self):
@@ -328,7 +317,9 @@ class PastastoreViewer:
         main_dock_created = False
         if not self.dock_widget:
             self.dock_widget = PastastoreMainDock(self.iface.mainWindow())
-            self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dock_widget)
+            self.iface.addDockWidget(
+                Qt.DockWidgetArea.RightDockWidgetArea, self.dock_widget
+            )
             main_dock_created = True
 
             # Connect dock signals
@@ -377,7 +368,9 @@ class PastastoreViewer:
 
         if not self.plot_dock:
             self.plot_dock = PastastorePlotDock(self.iface.mainWindow())
-            self.iface.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.plot_dock)
+            self.iface.addDockWidget(
+                Qt.DockWidgetArea.BottomDockWidgetArea, self.plot_dock
+            )
 
             # Connect plot dock visibility signal if needed
             self.plot_dock.visibilityChanged.connect(
@@ -649,7 +642,9 @@ class PastastoreViewer:
                 choice.setText(
                     "A pastastore is already loaded. Do you want to replace it or merge the new data?"
                 )
-                replace_btn = choice.addButton("Replace", QMessageBox.ButtonRole.AcceptRole)
+                replace_btn = choice.addButton(
+                    "Replace", QMessageBox.ButtonRole.AcceptRole
+                )
                 merge_btn = choice.addButton("Merge", QMessageBox.ButtonRole.ActionRole)
                 choice.addButton(QMessageBox.StandardButton.Cancel)
                 choice.exec()
@@ -797,8 +792,8 @@ class PastastoreViewer:
 
     def _load_from_path(self, filename):
         if filename:
-            import sys
             import io
+            import sys
 
             busy = QProgressDialog(
                 "Loading pastastore...", None, 0, 0, self.iface.mainWindow()
@@ -819,6 +814,7 @@ class PastastoreViewer:
                 sys.stderr = io.StringIO()
 
             import traceback
+
             from pastastore.base import BaseConnector
 
             try:
@@ -854,8 +850,8 @@ class PastastoreViewer:
         if not self.store or not filename:
             return
 
-        import sys
         import io
+        import sys
 
         busy = QProgressDialog(
             "Merging pastastore...", None, 0, 0, self.iface.mainWindow()
@@ -2017,7 +2013,9 @@ class PastastoreViewer:
             sym.setSize(BASE_SIZE)
             sl = sym.symbolLayer(0)
             if sl:
-                sl.setDataDefinedProperty(QgsSymbolLayer.Property.PropertySize, size_prop)
+                sl.setDataDefinedProperty(
+                    QgsSymbolLayer.Property.PropertySize, size_prop
+                )
             renderer.updateRangeSymbol(i, sym)
         vl.setRenderer(renderer)
 
@@ -2365,7 +2363,8 @@ class PastastoreViewer:
                 # Update in store
                 metadata = (
                     self.store.oseries.loc[oseries_name].to_dict()
-                    if hasattr(self.store, "oseries") and oseries_name in self.store.oseries.index
+                    if hasattr(self.store, "oseries")
+                    and oseries_name in self.store.oseries.index
                     else {}
                 )
                 if hasattr(self.store, "del_oseries"):
@@ -2421,7 +2420,8 @@ class PastastoreViewer:
                 # Get metadata
                 metadata = (
                     self.store.stresses.loc[stress_name].to_dict()
-                    if hasattr(self.store, "stresses") and stress_name in self.store.stresses.index
+                    if hasattr(self.store, "stresses")
+                    and stress_name in self.store.stresses.index
                     else {}
                 )
 
@@ -2441,9 +2441,7 @@ class PastastoreViewer:
                 self._add_stress_to_store(modified_series, stress_name, metadata)
                 self.store_modified = True
 
-                self._push_message(
-                    "Success", f"Updated stress: {stress_name}", level=0
-                )
+                self._push_message("Success", f"Updated stress: {stress_name}", level=0)
 
                 # Refresh dock table & plot if stresses tab is active
                 if self.dock_widget:
@@ -2455,7 +2453,9 @@ class PastastoreViewer:
         except Exception as e:
             import traceback
 
-            self._push_message("Error", f"Failed to edit stress {stress_name}: {str(e)}", level=2)
+            self._push_message(
+                "Error", f"Failed to edit stress {stress_name}: {str(e)}", level=2
+            )
             print(traceback.format_exc())
 
     def open_bro_import_dialog(self):
