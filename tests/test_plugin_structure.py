@@ -36,9 +36,11 @@ class TestPluginStructure:
         assert readme_path.exists()
 
     def test_license_exists(self, plugin_dir):
-        """Test that LICENSE.md file exists."""
-        license_path = Path(plugin_dir) / "LICENSE.md"
+        """Test that LICENSE file exists."""
+        license_path = Path(plugin_dir) / "LICENSE"
         assert license_path.exists()
+
+
 
     def test_icon_exists(self, plugin_dir):
         """Test that icon.svg file exists."""

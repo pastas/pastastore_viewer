@@ -3,7 +3,8 @@
 **⚠️ PROPRIETARY SOFTWARE**
 
 This plugin is proprietary. Modification and redistribution are **strictly prohibited**. 
-See [LICENSE.md](LICENSE.md) for details.
+See [LICENSE](LICENSE) for details.
+
 
 You may use free features without a license; Pro features require a valid paid license.
 

@@ -80,9 +80,10 @@ class LicenseManager:
     def __init__(self, plugin_dir: str, plugin_version: str):
         self.plugin_dir = Path(plugin_dir)
         self.plugin_version = plugin_version
-        self.license_dir = self.plugin_dir / "license"
+        self.license_dir = self.plugin_dir / "licenses"
         self.license_dir.mkdir(parents=True, exist_ok=True)
         self.license_file = self.license_dir / "license_online.json"
+
         self.state = LicenseState()
         self._session_validated = False
         self._refresh_state()
