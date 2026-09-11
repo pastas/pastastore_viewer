@@ -9,5 +9,10 @@ email=r.calje@artesia-water.nl
 about=View PastaStore data including oseries, stresses, and models in QGIS.
 tracker=https://github.com/pastas/pastastore_viewer/issues
 repository=https://github.com/pastas/pastastore_viewer
+homepage=https://github.com/pastas/pastastore_viewer#readme
 icon=icon.svg
+category=Plugins
 experimental=True
+changelog=
+    0.1: Initial basic version.
+

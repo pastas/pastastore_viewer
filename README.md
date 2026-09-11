@@ -82,3 +82,22 @@ A reference FastAPI license server is included in [license_server/README.md](lic
 
 Important:
 - Deploy and configure the license server from [license_server/README.md](license_server/README.md).
+
+## Publish to QGIS Plugin Repository
+
+This repository includes a GitHub Actions workflow to publish the plugin to the QGIS plugin repository.
+
+Workflow file:
+- `.github/workflows/publish-qgis-plugin.yml`
+
+### Required GitHub repository secrets
+
+- `QGIS_PLUGIN_TOKEN`: plugin upload token created on [plugins.qgis.org](https://plugins.qgis.org)
+
+### How publishing is triggered
+
+- **Manual**: run the workflow from **Actions > Publish QGIS Plugin > Run workflow**
+- **Automatic**: when a GitHub release is published
+
+The workflow runs `bundle_deps.py` to package dependencies, creates `pastastore_viewer.zip` containing the plugin folder, and uploads it through the QGIS plugin API endpoint using the `QGIS_PLUGIN_TOKEN`.
+
