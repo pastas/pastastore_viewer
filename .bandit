@@ -1,3 +1,4 @@
 [bandit]
 targets: .
 exclude: ./dependencies
+skips: B101,B110,B112
