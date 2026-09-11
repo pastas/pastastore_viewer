@@ -36,7 +36,11 @@ from qgis.core import QgsApplication, QgsStyle
 import pandas as pd
 import numpy as np
 
-from .i18n_helper import tr as _i18n_tr
+try:
+    from .i18n_helper import tr as _i18n_tr
+except ImportError:
+    from i18n_helper import tr as _i18n_tr
+
 
 
 if hasattr(QToolButton, "InstantPopup"):

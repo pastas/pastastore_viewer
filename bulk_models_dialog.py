@@ -23,7 +23,11 @@ from qgis.PyQt.QtWidgets import (
 )
 from qgis.PyQt.QtCore import QDate
 import pandas as pd
-from .i18n_helper import tr as _i18n_tr
+try:
+    from .i18n_helper import tr as _i18n_tr
+except ImportError:
+    from i18n_helper import tr as _i18n_tr
+
 
 
 

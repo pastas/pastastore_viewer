@@ -89,7 +89,11 @@ from .knmi_import_dialog import KNMIImportDialog
 from .bulk_models_dialog import BulkModelsDialog
 from .license_manager import LicenseManager, FEATURE_PRO, FEATURE_PRONL
 
-from .i18n_helper import tr as _i18n_tr
+try:
+    from .i18n_helper import tr as _i18n_tr
+except ImportError:
+    from i18n_helper import tr as _i18n_tr
+
 
 
 def _tr(message):

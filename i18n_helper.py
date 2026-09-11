@@ -3,7 +3,29 @@
 import os
 import xml.etree.ElementTree as ET
 
-from qgis.PyQt.QtCore import QCoreApplication, QLocale, QSettings
+try:
+    from qgis.PyQt.QtCore import QCoreApplication, QLocale, QSettings
+except ImportError:
+    class QCoreApplication:
+        @staticmethod
+        def translate(context, message):
+            return message
+
+    class QLocale:
+        def __init__(self, name="en_US"):
+            self._name = name
+
+        def name(self):
+            return self._name
+
+        @staticmethod
+        def system():
+            return QLocale("en_US")
+
+    class QSettings:
+        def value(self, key, default=None):
+            return default
+
 
 
 _NL_TRANSLATIONS = None
@@ -85,8 +107,9 @@ def _load_nl_translations():
 
 def tr(message, context="PastastoreViewer"):
     translated = QCoreApplication.translate(context, message)
-    if translated and translated != message:
+    if isinstance(translated, str) and translated and translated != message:
         return translated
+
 
     if not _is_dutch_locale():
         return message

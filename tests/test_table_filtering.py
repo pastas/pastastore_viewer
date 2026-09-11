@@ -7,12 +7,16 @@ import pytest
 def _has_qgis():
     """Check if QGIS environment is available."""
     try:
+        from unittest.mock import MagicMock
         import qgis.core
+        if isinstance(qgis.core, MagicMock) or getattr(qgis.core, "__is_mock__", False):
+            return False
         from qgis.PyQt.QtWidgets import QWidget
         from qgis.PyQt.QtGui import QPixmap
         return True
     except (ImportError, ModuleNotFoundError, AttributeError):
         return False
+
 
 
 @pytest.mark.unit
