@@ -28,10 +28,50 @@ Deactivates a machine for a license.
 ### `GET /admin`\nBrowser-based admin UI — list and create licenses without PowerShell.\n\n### `POST /admin/licenses`
 Admin endpoint to issue licenses.
 
-### `GET /admin/licenses`
-Admin endpoint to list all licenses with active device count.
+### `POST /create-checkout-session`
+Creates an annual recurring Stripe Checkout Session (`mode="subscription"`) for online purchases (iDEAL, Creditcard, Bancontact, Wero) with automatic VAT calculation and PDF invoicing.
+
+### `POST /webhook/stripe`
+Stripe Webhook endpoint. Handles:
+- `checkout.session.completed`: Generates and registers new licenses in the database.
+- `invoice.payment_succeeded`: Extends license validity by **+365 days** on each successful yearly renewal payment.
+- `customer.subscription.updated` / `customer.subscription.deleted`: Updates `auto_renew` state upon cancellation.
+
+### `POST /create-portal-session`
+Creates a Stripe Billing Portal session (`stripe.billing_portal.Session`) allowing customers to manage their payment methods, view invoices, or cancel their automatic renewal.
+
+### `GET /manage-subscription`
+Customer portal lookup page where users enter their license key to open their Stripe Customer Portal.
+
+### `GET /checkout/success`
+Checkout completion page for customers. Displays their newly issued license key, copy button, activation steps in QGIS, link to download their Stripe PDF invoice, and button to manage or cancel automatic renewal.
+
+
+## Stripe Environment Variables
+
+Set the following environment variables in production (e.g. via `fly secrets set`):
+
+- `STRIPE_SECRET_KEY`: Your Stripe secret key (`sk_live_...` or `sk_test_...`).
+- `STRIPE_WEBHOOK_SECRET`: Webhook signing secret (`whsec_...`) from Stripe Dashboard -> Developers -> Webhooks.
+- `STRIPE_SUCCESS_URL` (optional): Custom success URL template (defaults to `https://<domain>/checkout/success?session_id={CHECKOUT_SESSION_ID}`).
+- `STRIPE_CANCEL_URL` (optional): Custom cancel URL (defaults to `https://<domain>/request-license`).
+
+## Local Development & Testing Webhooks
+
+1. Install the [Stripe CLI](https://stripe.com/docs/stripe-cli).
+2. Forward webhooks to your local server:
+   ```bash
+   stripe listen --forward-to localhost:8000/webhook/stripe
+   ```
+3. Copy the outputted webhook signing secret (`whsec_...`) and run your FastAPI server:
+   ```bash
+   export STRIPE_SECRET_KEY="sk_test_..."
+   export STRIPE_WEBHOOK_SECRET="whsec_..."
+   uvicorn app:app --reload
+   ```
 
 ## Data
+
 
 Database file:
 - `license_server.db`

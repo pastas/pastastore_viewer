@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import secrets
 import sqlite3
 import uuid
@@ -8,14 +10,19 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
-import os
+import stripe
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("LICENSE_DB_PATH", BASE_DIR / "license_server.db"))
 ADMIN_TOKEN = os.environ.get("LICENSE_ADMIN_TOKEN", "")
+
+STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_SUCCESS_URL = os.environ.get("STRIPE_SUCCESS_URL", "")
+STRIPE_CANCEL_URL = os.environ.get("STRIPE_CANCEL_URL", "")
 
 
 class ActivationRequest(BaseModel):
@@ -42,6 +49,29 @@ class CreateLicenseRequest(BaseModel):
     max_devices: int = Field(default=1, ge=1, le=100)
 
 
+class CreateCheckoutRequest(BaseModel):
+    license_type: str = Field(pattern=r"^(pro|proNL)$")
+    max_devices: int = Field(default=1, ge=1, le=100)
+    customer_name: str = Field(min_length=1, max_length=200)
+    customer_email: str = Field(min_length=3, max_length=200)
+
+
+class CreatePortalRequest(BaseModel):
+    license_key: str | None = Field(default=None, max_length=128)
+    session_id: str | None = Field(default=None, max_length=200)
+
+
+class CustomerLicenseInfoRequest(BaseModel):
+    license_key: str = Field(min_length=1, max_length=128)
+
+
+class CustomerDeactivateDeviceRequest(BaseModel):
+    license_key: str = Field(min_length=1, max_length=128)
+    machine_id: str = Field(min_length=1, max_length=128)
+
+
+
+
 @dataclass
 class LicenseRecord:
     id: str
@@ -51,6 +81,11 @@ class LicenseRecord:
     expires_at: str
     max_devices: int
     is_active: int
+    stripe_session_id: str | None = None
+    stripe_customer_id: str | None = None
+    stripe_subscription_id: str | None = None
+    auto_renew: int = 1
+
 
 
 app = FastAPI(title="Pastastore Viewer License Server", version="2.0.0")
@@ -58,6 +93,7 @@ app = FastAPI(title="Pastastore Viewer License Server", version="2.0.0")
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
 
 
 def isoformat_z(dt: datetime) -> str:
@@ -90,10 +126,26 @@ def init_db() -> None:
                 expires_at TEXT NOT NULL,
                 max_devices INTEGER NOT NULL,
                 is_active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                stripe_session_id TEXT,
+                stripe_customer_id TEXT,
+                stripe_subscription_id TEXT,
+                auto_renew INTEGER NOT NULL DEFAULT 1
             )
             """
         )
+        # Migrate existing table if columns are missing
+        cursor = conn.execute("PRAGMA table_info(licenses)")
+        columns = [row["name"] for row in cursor.fetchall()]
+        if "stripe_session_id" not in columns:
+            conn.execute("ALTER TABLE licenses ADD COLUMN stripe_session_id TEXT")
+        if "stripe_customer_id" not in columns:
+            conn.execute("ALTER TABLE licenses ADD COLUMN stripe_customer_id TEXT")
+        if "stripe_subscription_id" not in columns:
+            conn.execute("ALTER TABLE licenses ADD COLUMN stripe_subscription_id TEXT")
+        if "auto_renew" not in columns:
+            conn.execute("ALTER TABLE licenses ADD COLUMN auto_renew INTEGER NOT NULL DEFAULT 1")
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS activations (
@@ -122,12 +174,72 @@ def feature_list(license_type: str) -> list[str]:
     return []
 
 
+def insert_license_record(
+    customer_name: str,
+    license_type: str,
+    days_valid: int = 365,
+    max_devices: int = 1,
+    stripe_session_id: str | None = None,
+    stripe_customer_id: str | None = None,
+    stripe_subscription_id: str | None = None,
+    auto_renew: int = 1,
+) -> dict[str, Any]:
+    now = utcnow()
+    expires = now + timedelta(days=days_valid)
+
+    record = {
+        "id": str(uuid.uuid4()),
+        "license_key": random_license_key(),
+        "customer_name": customer_name,
+        "license_type": license_type,
+        "expires_at": isoformat_z(expires),
+        "max_devices": max_devices,
+        "is_active": 1,
+        "created_at": isoformat_z(now),
+        "stripe_session_id": stripe_session_id,
+        "stripe_customer_id": stripe_customer_id,
+        "stripe_subscription_id": stripe_subscription_id,
+        "auto_renew": auto_renew,
+    }
+
+    conn = db()
+    try:
+        conn.execute(
+            """
+            INSERT INTO licenses (
+                id, license_key, customer_name, license_type,
+                expires_at, max_devices, is_active, created_at,
+                stripe_session_id, stripe_customer_id, stripe_subscription_id, auto_renew
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                record["id"],
+                record["license_key"],
+                record["customer_name"],
+                record["license_type"],
+                record["expires_at"],
+                record["max_devices"],
+                record["is_active"],
+                record["created_at"],
+                record["stripe_session_id"],
+                record["stripe_customer_id"],
+                record["stripe_subscription_id"],
+                record["auto_renew"],
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return record
+
+
 def get_license_by_key(license_key: str) -> LicenseRecord | None:
     conn = db()
     try:
         row = conn.execute(
             """
-            SELECT id, license_key, customer_name, license_type, expires_at, max_devices, is_active
+            SELECT id, license_key, customer_name, license_type, expires_at, max_devices, is_active, stripe_session_id, stripe_customer_id, stripe_subscription_id, auto_renew
             FROM licenses
             WHERE license_key = ?
             """,
@@ -147,7 +259,102 @@ def get_license_by_key(license_key: str) -> LicenseRecord | None:
         expires_at=row["expires_at"],
         max_devices=int(row["max_devices"]),
         is_active=int(row["is_active"]),
+        stripe_session_id=row["stripe_session_id"],
+        stripe_customer_id=row["stripe_customer_id"],
+        stripe_subscription_id=row["stripe_subscription_id"],
+        auto_renew=int(row["auto_renew"]) if row["auto_renew"] is not None else 1,
     )
+
+
+def get_license_by_stripe_session_id(session_id: str) -> LicenseRecord | None:
+    conn = db()
+    try:
+        row = conn.execute(
+            """
+            SELECT id, license_key, customer_name, license_type, expires_at, max_devices, is_active, stripe_session_id, stripe_customer_id, stripe_subscription_id, auto_renew
+            FROM licenses
+            WHERE stripe_session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        return None
+
+    return LicenseRecord(
+        id=row["id"],
+        license_key=row["license_key"],
+        customer_name=row["customer_name"],
+        license_type=row["license_type"],
+        expires_at=row["expires_at"],
+        max_devices=int(row["max_devices"]),
+        is_active=int(row["is_active"]),
+        stripe_session_id=row["stripe_session_id"],
+        stripe_customer_id=row["stripe_customer_id"],
+        stripe_subscription_id=row["stripe_subscription_id"],
+        auto_renew=int(row["auto_renew"]) if row["auto_renew"] is not None else 1,
+    )
+
+
+def get_license_by_stripe_subscription_id(subscription_id: str) -> LicenseRecord | None:
+    conn = db()
+    try:
+        row = conn.execute(
+            """
+            SELECT id, license_key, customer_name, license_type, expires_at, max_devices, is_active, stripe_session_id, stripe_customer_id, stripe_subscription_id, auto_renew
+            FROM licenses
+            WHERE stripe_subscription_id = ?
+            """,
+            (subscription_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not row:
+        return None
+
+    return LicenseRecord(
+        id=row["id"],
+        license_key=row["license_key"],
+        customer_name=row["customer_name"],
+        license_type=row["license_type"],
+        expires_at=row["expires_at"],
+        max_devices=int(row["max_devices"]),
+        is_active=int(row["is_active"]),
+        stripe_session_id=row["stripe_session_id"],
+        stripe_customer_id=row["stripe_customer_id"],
+        stripe_subscription_id=row["stripe_subscription_id"],
+        auto_renew=int(row["auto_renew"]) if row["auto_renew"] is not None else 1,
+    )
+
+
+def extend_license_expiry(license_id: str, days_to_add: int = 365) -> str:
+    conn = db()
+    try:
+        row = conn.execute("SELECT expires_at FROM licenses WHERE id = ?", (license_id,)).fetchone()
+        if not row:
+            return ""
+        current_exp = parse_iso(row["expires_at"])
+        base_time = max(utcnow(), current_exp)
+        new_exp = base_time + timedelta(days=days_to_add)
+        new_exp_iso = isoformat_z(new_exp)
+        conn.execute("UPDATE licenses SET expires_at = ?, is_active = 1 WHERE id = ?", (new_exp_iso, license_id))
+        conn.commit()
+        return new_exp_iso
+    finally:
+        conn.close()
+
+
+def update_auto_renew(license_id: str, auto_renew: int) -> None:
+    conn = db()
+    try:
+        conn.execute("UPDATE licenses SET auto_renew = ? WHERE id = ?", (auto_renew, license_id))
+        conn.commit()
+    finally:
+        conn.close()
+
 
 
 def count_activations(license_id: str) -> int:
@@ -307,14 +514,14 @@ def request_license_ui() -> str:
   <h1>Request a Pastastore Viewer License</h1>
   <p>Fill in the form below to request a Pro or ProNL license. You will be contacted within 1-2 business days.</p>
   
-  <h2>Pricing</h2>
+  <h2>Pricing <span style="font-size: 14px; font-weight: normal; color: #666;">(excl. VAT / BTW)</span></h2>
   <div class="pricing-grid">
     <div class="pricing-card">
       <h3>Pro</h3>
       <p style="font-size: 13px; margin: 0 0 12px; color: #666;">Model solving & editing</p>
-      <div class="price">€349/year (1 device)</div>
-      <div class="price">€699/year (3 devices)</div>
-      <div class="price">€1,499/year (10 devices)</div>
+      <div class="price">€349/year (1 device) <span style="font-size: 12px; font-weight: normal; color: #666;">excl. VAT</span></div>
+      <div class="price">€699/year (3 devices) <span style="font-size: 12px; font-weight: normal; color: #666;">excl. VAT</span></div>
+      <div class="price">€1,499/year (10 devices) <span style="font-size: 12px; font-weight: normal; color: #666;">excl. VAT</span></div>
       <ul>
         <li>Create & solve models</li>
         <li>Full editing capabilities</li>
@@ -324,9 +531,9 @@ def request_license_ui() -> str:
     <div class="pricing-card">
       <h3>ProNL</h3>
       <p style="font-size: 13px; margin: 0 0 12px; color: #666;">Pro + Dutch data imports</p>
-      <div class="price">€499/year (1 device)</div>
-      <div class="price">€999/year (3 devices)</div>
-      <div class="price">€1,999/year (10 devices)</div>
+      <div class="price">€499/year (1 device) <span style="font-size: 12px; font-weight: normal; color: #666;">excl. VAT</span></div>
+      <div class="price">€999/year (3 devices) <span style="font-size: 12px; font-weight: normal; color: #666;">excl. VAT</span></div>
+      <div class="price">€1,999/year (10 devices) <span style="font-size: 12px; font-weight: normal; color: #666;">excl. VAT</span></div>
       <ul>
         <li>All Pro features</li>
         <li>BRO data import</li>
@@ -335,10 +542,47 @@ def request_license_ui() -> str:
     </div>
   </div>
   
-  <p style="font-size: 13px; color: #666; margin-top: 16px;"><strong>Need more devices?</strong> Contact us for custom plans. <strong>Education/Non-profit?</strong> Discounts available upon request.</p>
+  <p style="font-size: 13px; color: #666; margin-top: 16px;"><em>All prices listed above are excluding VAT / BTW. Applicable tax will be calculated automatically at checkout based on your billing address / VAT ID.</em></p>
+  <p style="font-size: 13px; color: #666;"><strong>Need more devices?</strong> Contact us for custom plans. <strong>Education/Non-profit?</strong> Discounts available upon request.</p>
 
-  <h2>Request Form</h2>
+  <div style="background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 8px; padding: 20px; margin: 24px 0;">
+    <h2 style="margin-top: 0; color: #0369a1;">&#9889; Buy Online &amp; Activate Instantly</h2>
+    <p style="font-size: 13px; color: #0369a1; margin-bottom: 14px;">Pay securely via Stripe using <strong>iDEAL, Creditcard, Bancontact, or Wero</strong>. Receive your license key and PDF invoice immediately. <em>(VAT / BTW calculated automatically at checkout)</em>.</p>
+    
+    <form id="stripe-checkout-form">
+      <label for="st-name">Full Name / Organisation *</label>
+      <input type="text" id="st-name" required placeholder="e.g. Acme Corp / Jane Doe" />
+
+      <label for="st-email">E-mail address *</label>
+      <input type="email" id="st-email" required placeholder="your@email.com" />
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px;">
+        <div>
+          <label for="st-ltype">License Type *</label>
+          <select id="st-ltype" required>
+            <option value="pro">Pro (€349/yr excl. VAT)</option>
+            <option value="proNL" selected>ProNL (€499/yr excl. VAT)</option>
+          </select>
+        </div>
+        <div>
+          <label for="st-devices">Devices *</label>
+          <select id="st-devices" required>
+            <option value="1">1 Device</option>
+            <option value="3">3 Devices</option>
+            <option value="10">10 Devices</option>
+          </select>
+        </div>
+      </div>
+
+
+      <button id="st-submit-btn" type="submit" style="background: #0284c7; margin-top: 16px;">Pay &amp; Activate Now (Stripe Checkout)</button>
+      <div id="st-error" class="error"></div>
+    </form>
+  </div>
+
+  <h2>Custom Quote / Inquiry Form</h2>
     <form id="license-form" action="https://formspree.io/f/mpqbjbnv" method="POST">
+
     <label for="name">Full name *</label>
     <input type="text" id="name" name="name" required placeholder="Your name" />
 
@@ -369,10 +613,55 @@ def request_license_ui() -> str:
   <p class="note">Your information is used solely for license administration.</p>
 </div>
 <script>
+const stForm = document.getElementById('stripe-checkout-form');
+const stBtn = document.getElementById('st-submit-btn');
+const stErr = document.getElementById('st-error');
+
+if (stForm) {
+  stForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    stErr.style.display = 'none';
+    stErr.textContent = '';
+    const origText = stBtn.textContent;
+    stBtn.disabled = true;
+    stBtn.textContent = 'Redirecting to Stripe...';
+
+    try {
+      const payload = {
+        customer_name: document.getElementById('st-name').value.trim(),
+        customer_email: document.getElementById('st-email').value.trim(),
+        license_type: document.getElementById('st-ltype').value,
+        max_devices: parseInt(document.getElementById('st-devices').value, 10)
+      };
+
+      const res = await fetch('/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (res.ok && data.checkout_url) {
+        window.location.href = data.checkout_url;
+      } else {
+        stErr.textContent = data.detail || 'Failed to initiate Stripe Checkout.';
+        stErr.style.display = 'block';
+      }
+    } catch (err) {
+      stErr.textContent = 'Network error. Please try again.';
+      stErr.style.display = 'block';
+    } finally {
+      stBtn.disabled = false;
+      stBtn.textContent = origText;
+    }
+  });
+}
+
 const form = document.getElementById('license-form');
 const submitBtn = document.getElementById('submit-btn');
 const errorEl = document.getElementById('form-error');
 const emailInput = document.getElementById('email');
+
 
 form.addEventListener('submit', async (event) => {
     event.preventDefault();
@@ -760,43 +1049,12 @@ def create_license(
 ) -> dict[str, Any]:
     ensure_admin_token(x_admin_token)
 
-    now = utcnow()
-    expires = now + timedelta(days=req.days_valid)
-
-    record = {
-        "id": str(uuid.uuid4()),
-        "license_key": random_license_key(),
-        "customer_name": req.customer_name,
-        "license_type": req.license_type,
-        "expires_at": isoformat_z(expires),
-        "max_devices": req.max_devices,
-        "is_active": 1,
-        "created_at": isoformat_z(now),
-    }
-
-    conn = db()
-    try:
-        conn.execute(
-            """
-            INSERT INTO licenses (
-                id, license_key, customer_name, license_type,
-                expires_at, max_devices, is_active, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record["id"],
-                record["license_key"],
-                record["customer_name"],
-                record["license_type"],
-                record["expires_at"],
-                record["max_devices"],
-                record["is_active"],
-                record["created_at"],
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
+    record = insert_license_record(
+        customer_name=req.customer_name,
+        license_type=req.license_type,
+        days_valid=req.days_valid,
+        max_devices=req.max_devices,
+    )
 
     return {
         "license_key": record["license_key"],
@@ -805,6 +1063,685 @@ def create_license(
         "expires_at": record["expires_at"],
         "max_devices": record["max_devices"],
     }
+
+
+def calculate_price_cents(license_type: str, max_devices: int) -> int:
+    if license_type == "pro":
+        if max_devices == 1:
+            return 34900
+        elif max_devices == 3:
+            return 69900
+        elif max_devices == 10:
+            return 149900
+        else:
+            return 34900 * max_devices
+    else:  # proNL
+        if max_devices == 1:
+            return 49900
+        elif max_devices == 3:
+            return 99900
+        elif max_devices == 10:
+            return 199900
+        else:
+            return 49900 * max_devices
+
+
+@app.post("/create-checkout-session")
+def create_checkout_session(req: CreateCheckoutRequest, request: Request) -> dict[str, Any]:
+    base_url = str(request.base_url).rstrip("/")
+
+    if not STRIPE_SECRET_KEY:
+        # Demo mode for testing local server without a live Stripe key
+        demo_session_id = f"demo_session_{uuid.uuid4().hex[:12]}"
+        insert_license_record(
+            customer_name=req.customer_name,
+            license_type=req.license_type,
+            days_valid=365,
+            max_devices=req.max_devices,
+            stripe_session_id=demo_session_id,
+            stripe_customer_id="cus_demo_12345",
+            stripe_subscription_id="sub_demo_12345",
+            auto_renew=1,
+        )
+        return {
+            "checkout_url": f"{base_url}/checkout/success?session_id={demo_session_id}",
+            "session_id": demo_session_id,
+        }
+
+    stripe.api_key = STRIPE_SECRET_KEY
+    price_cents = calculate_price_cents(req.license_type, req.max_devices)
+
+    success_url = (
+        STRIPE_SUCCESS_URL
+        or f"{base_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}"
+    )
+    cancel_url = STRIPE_CANCEL_URL or f"{base_url}/request-license"
+
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card", "ideal", "bancontact", "wero"],
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "eur",
+                        "product_data": {
+                            "name": f"Pastastore Viewer {req.license_type.upper()} ({req.max_devices} device{'s' if req.max_devices > 1 else ''})",
+                            "description": f"Annual Recurring License ({req.max_devices} device limit)",
+                        },
+                        "unit_amount": price_cents,
+                        "recurring": {"interval": "year"},
+                    },
+                    "quantity": 1,
+                }
+            ],
+            mode="subscription",
+            automatic_tax={"enabled": True},
+            customer_email=req.customer_email,
+            metadata={
+                "customer_name": req.customer_name,
+                "license_type": req.license_type,
+                "max_devices": str(req.max_devices),
+                "days_valid": "365",
+            },
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+        return {"checkout_url": session.url, "session_id": session.id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/webhook/stripe")
+async def stripe_webhook(request: Request) -> dict[str, Any]:
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+
+    if STRIPE_WEBHOOK_SECRET:
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, STRIPE_WEBHOOK_SECRET
+            )
+        except (ValueError, stripe.error.SignatureVerificationError) as e:
+            raise HTTPException(status_code=400, detail=f"Webhook signature error: {str(e)}")
+    else:
+        try:
+            event = json.loads(payload.decode("utf-8"))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    event_type = event.get("type") if isinstance(event, dict) else event.type
+    event_data = event.get("data", {}).get("object", {}) if isinstance(event, dict) else event.data.object
+
+    if event_type == "checkout.session.completed":
+        session_id = event_data.get("id")
+        customer_id = event_data.get("customer")
+        subscription_id = event_data.get("subscription")
+        metadata = event_data.get("metadata", {})
+        customer_details = event_data.get("customer_details", {})
+
+        customer_name = (
+            metadata.get("customer_name")
+            or (customer_details.get("name") if isinstance(customer_details, dict) else getattr(customer_details, "name", None))
+            or "Valued Customer"
+        )
+        license_type = metadata.get("license_type", "pro")
+        max_devices = int(metadata.get("max_devices", "1"))
+        days_valid = int(metadata.get("days_valid", "365"))
+
+        if session_id:
+            existing = get_license_by_stripe_session_id(session_id)
+            if not existing:
+                insert_license_record(
+                    customer_name=customer_name,
+                    license_type=license_type,
+                    days_valid=days_valid,
+                    max_devices=max_devices,
+                    stripe_session_id=session_id,
+                    stripe_customer_id=customer_id if isinstance(customer_id, str) else None,
+                    stripe_subscription_id=subscription_id if isinstance(subscription_id, str) else None,
+                    auto_renew=1,
+                )
+
+    elif event_type == "invoice.payment_succeeded":
+        billing_reason = event_data.get("billing_reason")
+        subscription_id = event_data.get("subscription")
+        if billing_reason == "subscription_cycle" and subscription_id:
+            lic = get_license_by_stripe_subscription_id(subscription_id)
+            if lic:
+                extend_license_expiry(lic.id, days_to_add=365)
+
+    elif event_type in ("customer.subscription.updated", "customer.subscription.deleted"):
+        sub_id = event_data.get("id")
+        status = event_data.get("status")
+        cancel_at_period_end = event_data.get("cancel_at_period_end", False)
+
+        if sub_id:
+            lic = get_license_by_stripe_subscription_id(sub_id)
+            if lic:
+                auto_renew = 0 if (cancel_at_period_end or status == "canceled") else 1
+                update_auto_renew(lic.id, auto_renew)
+
+    return {"status": "success"}
+
+
+@app.post("/create-portal-session")
+def create_portal_session(req: CreatePortalRequest, request: Request) -> dict[str, Any]:
+    base_url = str(request.base_url).rstrip("/")
+
+    if not STRIPE_SECRET_KEY:
+        # Demo mode notice when Stripe key is not configured yet
+        return {
+            "demo": True,
+            "portal_url": None,
+            "message": (
+                "In production with a live Stripe account (STRIPE_SECRET_KEY configured), "
+                "clicking this button securely redirects the customer to their hosted Stripe Customer Portal (https://billing.stripe.com).\n\n"
+                "There customers can:\n"
+                "- Cancel or resume automatic annual renewal\n"
+                "- Update credit card / iDEAL / SEPA payment details\n"
+                "- View and download past PDF invoices"
+            ),
+        }
+
+
+
+    customer_id = None
+
+    if req.license_key:
+        lic = get_license_by_key(req.license_key)
+        if lic:
+            customer_id = lic.stripe_customer_id
+    elif req.session_id:
+        lic = get_license_by_stripe_session_id(req.session_id)
+        if lic:
+            customer_id = lic.stripe_customer_id
+
+    if not customer_id:
+        raise HTTPException(
+            status_code=404,
+            detail="No active Stripe subscription found for the provided key or session ID.",
+        )
+
+    stripe.api_key = STRIPE_SECRET_KEY
+    return_url = f"{base_url}/checkout/success"
+    if req.session_id:
+        return_url += f"?session_id={req.session_id}"
+
+    try:
+        portal_session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=return_url,
+        )
+        return {"portal_url": portal_session.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+
+@app.post("/customer/license-info")
+def customer_license_info(req: CustomerLicenseInfoRequest) -> dict[str, Any]:
+    lic = get_license_by_key(req.license_key)
+    if not lic:
+        raise HTTPException(status_code=404, detail="License key not found.")
+
+    conn = db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT machine_id, device_name, plugin_version, activated_at, last_seen_at
+            FROM activations
+            WHERE license_id = ?
+            ORDER BY last_seen_at DESC
+            """,
+            (lic.id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    activations = [dict(row) for row in rows]
+
+    return {
+        "customer_name": lic.customer_name,
+        "license_type": lic.license_type,
+        "max_devices": lic.max_devices,
+        "active_devices_count": len(activations),
+        "expires_at": lic.expires_at,
+        "is_active": bool(lic.is_active),
+        "auto_renew": bool(lic.auto_renew),
+        "has_stripe_subscription": bool(lic.stripe_subscription_id or lic.stripe_customer_id),
+        "activations": activations,
+    }
+
+
+@app.post("/customer/deactivate-device")
+def customer_deactivate_device(req: CustomerDeactivateDeviceRequest) -> dict[str, Any]:
+    lic = get_license_by_key(req.license_key)
+    if not lic:
+        raise HTTPException(status_code=404, detail="License key not found.")
+
+    removed = deactivate_activation(lic.id, req.machine_id)
+    if not removed:
+        raise HTTPException(status_code=404, detail="Device activation not found.")
+
+    return {"deactivated": True, "machine_id": req.machine_id}
+
+
+@app.post("/customer/toggle-auto-renew-demo")
+def customer_toggle_auto_renew_demo(req: CustomerLicenseInfoRequest) -> dict[str, Any]:
+    lic = get_license_by_key(req.license_key)
+    if not lic:
+        raise HTTPException(status_code=404, detail="License key not found.")
+    new_state = 0 if lic.auto_renew else 1
+    update_auto_renew(lic.id, new_state)
+    return {"auto_renew": new_state}
+
+
+
+@app.get("/manage-subscription", response_class=HTMLResponse)
+def manage_subscription_ui() -> str:
+    return """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Customer License &amp; Device Portal &mdash; Pastastore Viewer</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 800px; margin: 50px auto; padding: 0 20px; background: #f5f5f5; }
+  h1 { color: #1e3a5f; text-align: center; margin-top: 0; }
+  .card { background: white; border-radius: 8px; padding: 28px; box-shadow: 0 1px 3px rgba(0,0,0,.12); margin-bottom: 24px; }
+  label { display: block; font-size: 13px; font-weight: 600; color: #444; margin: 16px 0 4px; }
+  input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; box-sizing: border-box; font-family: monospace; }
+  button { margin-top: 14px; padding: 10px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  button.danger { background: #dc2626; padding: 4px 10px; font-size: 12px; }
+  button.danger:hover { background: #b91c1c; }
+  .error { margin-top: 12px; color: #b91c1c; font-size: 13px; display: none; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; background: #f9fafb; padding: 16px; border-radius: 6px; border: 1px solid #e5e7eb; font-size: 14px; }
+  .info-item span { color: #6b7280; font-size: 12px; display: block; font-weight: 500; }
+  .info-item strong { color: #1f2937; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  th { text-align: left; background: #f3f4f6; padding: 8px 12px; border-bottom: 2px solid #e5e7eb; }
+  td { padding: 8px 12px; border-bottom: 1px solid #e5e7eb; vertical-align: middle; }
+  .mono { font-family: monospace; font-size: 12px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; }
+  .badge-active { background: #dcfce7; color: #166534; }
+  .note { font-size: 12px; color: #666; margin-top: 16px; }
+</style>
+</head>
+<body>
+<h1>Customer License Portal</h1>
+
+<div class="card">
+  <h2 style="margin-top:0; font-size:18px;">Enter Your License Key</h2>
+  <form id="lookup-form">
+    <label for="key">License Key</label>
+    <input type="text" id="key" required placeholder="XXXX-XXXX-XXXX-XXXX" />
+    <button type="submit" id="lookup-btn">View License &amp; Active Computers</button>
+    <div id="lookup-err" class="error"></div>
+  </form>
+</div>
+
+<div id="portal-details" style="display:none;">
+  <div class="card">
+    <h2 style="margin-top:0; font-size:18px;">License Summary</h2>
+    <div class="info-grid">
+      <div class="info-item"><span>Customer</span><strong id="d-customer">-</strong></div>
+      <div class="info-item"><span>License Type</span><strong id="d-type">-</strong></div>
+      <div class="info-item"><span>Devices Used</span><strong id="d-devices">-</strong></div>
+      <div class="info-item"><span>Expiration Date</span><strong id="d-expires">-</strong></div>
+      <div class="info-item"><span>Renewal Status</span><strong id="d-renewal">-</strong></div>
+    </div>
+    <button id="stripe-portal-btn" style="background:#4b5563;" onclick="openStripePortal()">&#9889; Manage / Cancel Billing in Stripe Portal</button>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0; font-size:18px;">Activated Computers</h2>
+    <p class="note">Below are the computers currently activated under this license. Click <strong>Deactivate</strong> to free up a slot for another computer.</p>
+    <div id="devices-list"></div>
+  </div>
+</div>
+
+<script>
+let currentKey = '';
+
+document.getElementById('lookup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const key = document.getElementById('key').value.trim();
+  if (!key) return;
+  currentKey = key;
+  await loadLicenseInfo();
+});
+
+async function loadLicenseInfo() {
+  const err = document.getElementById('lookup-err');
+  const btn = document.getElementById('lookup-btn');
+  err.style.display = 'none';
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+
+  try {
+    const res = await fetch('/customer/license-info', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_key: currentKey })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      let msg = 'License key not found.';
+      if (typeof data.detail === 'string') {
+        msg = data.detail;
+      } else if (Array.isArray(data.detail) && data.detail.length > 0) {
+        msg = data.detail.map(d => d.msg).join(', ');
+      }
+      err.textContent = msg;
+      err.style.display = 'block';
+      document.getElementById('portal-details').style.display = 'none';
+      return;
+    }
+
+
+    document.getElementById('d-customer').textContent = data.customer_name;
+    document.getElementById('d-type').textContent = data.license_type.toUpperCase();
+    document.getElementById('d-devices').textContent = data.active_devices_count + ' / ' + data.max_devices + ' devices';
+    document.getElementById('d-expires').textContent = new Date(data.expires_at).toLocaleDateString();
+    document.getElementById('d-renewal').textContent = data.auto_renew ? 'Automatic Renewal Active' : 'Automatic Renewal Cancelled';
+
+    renderDevices(data.activations);
+    document.getElementById('portal-details').style.display = 'block';
+  } catch (ex) {
+    err.textContent = 'Network error. Please try again.';
+    err.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'View License & Active Computers';
+  }
+}
+
+function renderDevices(activations) {
+  const el = document.getElementById('devices-list');
+  if (!activations || !activations.length) {
+    el.innerHTML = '<p style="color:#888; font-style:italic;">No computers are currently activated under this license.</p>';
+    return;
+  }
+
+  let html = `<table><thead><tr>
+    <th>Computer Name</th>
+    <th>Plugin Version</th>
+    <th>Activated Date</th>
+    <th>Last Active</th>
+    <th>Action</th>
+  </tr></thead><tbody>`;
+
+  activations.forEach(a => {
+    const actDate = new Date(a.activated_at).toLocaleDateString();
+    const lastDate = new Date(a.last_seen_at).toLocaleDateString();
+    html += `<tr>
+      <td><strong>${a.device_name}</strong><br><span class="mono" style="color:#888;font-size:10px">${a.machine_id.substring(0, 16)}...</span></td>
+      <td>v${a.plugin_version}</td>
+      <td>${actDate}</td>
+      <td>${lastDate}</td>
+      <td><button class="danger" onclick="deactivateDevice('${a.machine_id}', '${a.device_name}')">Deactivate</button></td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+async function deactivateDevice(machineId, deviceName) {
+  if (!confirm('Deactivate license on computer "' + deviceName + '"?\\nThis machine will revert to free mode until re-activated.')) return;
+  try {
+    const res = await fetch('/customer/deactivate-device', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_key: currentKey, machine_id: machineId })
+    });
+    if (res.ok) {
+      alert('Computer deactivated successfully! The device slot is now available.');
+      await loadLicenseInfo();
+    } else {
+      const data = await res.json();
+      alert('Failed: ' + (data.detail || 'Could not deactivate device'));
+    }
+  } catch (err) {
+    alert('Network error while deactivating device.');
+  }
+}
+
+async function openStripePortal() {
+  try {
+    const res = await fetch('/create-portal-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_key: currentKey })
+    });
+    const data = await res.json();
+    if (data.demo) {
+      if (confirm("[DEMO MODE NOTICE]\\n\\n" + data.message + "\\n\\nWould you like to simulate toggling automatic renewal in Demo Mode now?")) {
+        await toggleAutoRenewDemo();
+      }
+    } else if (res.ok && data.portal_url) {
+
+      window.location.href = data.portal_url;
+    } else {
+      alert(data.detail || 'Stripe portal not available.');
+    }
+  } catch (err) {
+    alert('Network error accessing Stripe portal.');
+  }
+}
+
+async function toggleAutoRenewDemo() {
+  try {
+    const res = await fetch('/customer/toggle-auto-renew-demo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ license_key: currentKey })
+    });
+    if (res.ok) {
+      alert('Demo auto-renew state toggled successfully!');
+      await loadLicenseInfo();
+    }
+  } catch (err) {
+    alert('Error toggling demo auto-renew state.');
+  }
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  const params = new URLSearchParams(window.location.search);
+  const k = params.get('key');
+  if (k) {
+    document.getElementById('key').value = k;
+    currentKey = k;
+    await loadLicenseInfo();
+  }
+});
+
+
+</script>
+</body>
+</html>
+"""
+
+
+
+
+@app.get("/checkout/success", response_class=HTMLResponse)
+def checkout_success(session_id: str | None = None) -> str:
+    license_key = ""
+    customer_name = "Valued Customer"
+    license_type = "pro"
+    max_devices = 1
+    expires_at = "N/A"
+    invoice_url = None
+
+    if session_id:
+        existing = get_license_by_stripe_session_id(session_id)
+        if not existing and STRIPE_SECRET_KEY:
+            try:
+                stripe.api_key = STRIPE_SECRET_KEY
+                sess = stripe.checkout.Session.retrieve(session_id)
+                if sess and getattr(sess, "payment_status", "") == "paid":
+                    metadata = getattr(sess, "metadata", {}) or {}
+                    customer_details = getattr(sess, "customer_details", {}) or {}
+                    cname = (
+                        metadata.get("customer_name")
+                        or (customer_details.get("name") if isinstance(customer_details, dict) else getattr(customer_details, "name", None))
+                        or "Valued Customer"
+                    )
+                    ltype = metadata.get("license_type", "pro")
+                    mdev = int(metadata.get("max_devices", "1"))
+                    dvalid = int(metadata.get("days_valid", "365"))
+                    created = insert_license_record(
+                        customer_name=cname,
+                        license_type=ltype,
+                        days_valid=dvalid,
+                        max_devices=mdev,
+                        stripe_session_id=session_id,
+                        stripe_customer_id=getattr(sess, "customer", None),
+                    )
+                    license_key = created["license_key"]
+                    customer_name = created["customer_name"]
+                    license_type = created["license_type"]
+                    max_devices = created["max_devices"]
+                    expires_at = created["expires_at"]
+            except Exception:
+                pass
+        elif existing:
+            license_key = existing.license_key
+            customer_name = existing.customer_name
+            license_type = existing.license_type
+            max_devices = existing.max_devices
+            expires_at = existing.expires_at
+
+        if STRIPE_SECRET_KEY:
+            try:
+                stripe.api_key = STRIPE_SECRET_KEY
+                sess = stripe.checkout.Session.retrieve(session_id, expand=["invoice"])
+                if sess and getattr(sess, "invoice", None):
+                    invoice_obj = sess.invoice
+                    if isinstance(invoice_obj, dict):
+                        invoice_url = invoice_obj.get("hosted_invoice_url") or invoice_obj.get("invoice_pdf")
+                    else:
+                        invoice_url = getattr(invoice_obj, "hosted_invoice_url", None) or getattr(invoice_obj, "invoice_pdf", None)
+            except Exception:
+                pass
+
+    invoice_button_html = ""
+    if invoice_url:
+        invoice_button_html = f'<a href="{invoice_url}" target="_blank" class="btn btn-secondary">&#128196; Download PDF Invoice</a>'
+
+    return f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Payment Successful &mdash; Pastastore Viewer</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; max-width: 650px; margin: 60px auto; padding: 0 20px; background: #f5f5f5; text-align: center; }}
+  .card {{ background: white; border-radius: 8px; padding: 36px; box-shadow: 0 1px 3px rgba(0,0,0,.12); }}
+  .icon {{ font-size: 48px; color: #166534; margin-bottom: 12px; }}
+  h1 {{ color: #166534; margin-top: 0; }}
+  p {{ color: #555; line-height: 1.6; }}
+  .key-box {{ background: #f0fdf4; border: 2px dashed #166534; border-radius: 8px; padding: 16px; margin: 24px 0; font-family: monospace; font-size: 22px; font-weight: bold; color: #14532d; letter-spacing: 1px; word-break: break-all; position: relative; }}
+  .btn {{ display: inline-block; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 600; font-size: 14px; cursor: pointer; margin: 6px; border: none; }}
+  .btn-primary {{ background: #2563eb; color: white; }}
+  .btn-primary:hover {{ background: #1d4ed8; }}
+  .btn-secondary {{ background: #4b5563; color: white; }}
+  .btn-secondary:hover {{ background: #374151; }}
+  .details {{ text-align: left; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 16px; margin: 20px 0; font-size: 14px; }}
+  .details-row {{ display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #f3f4f6; }}
+  .details-row:last-child {{ border-bottom: none; }}
+  .label {{ color: #6b7280; font-weight: 500; }}
+  .val {{ font-weight: 600; color: #1f2937; }}
+  .steps {{ text-align: left; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 16px; font-size: 13px; color: #1e40af; margin-top: 24px; }}
+  .steps ol {{ margin: 8px 0 0; padding-left: 20px; }}
+  .steps li {{ margin: 4px 0; }}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">&#10004;</div>
+  <h1>Payment Successful!</h1>
+  <p>Thank you for purchasing Pastastore Viewer. Your license key has been generated and activated.</p>
+  
+  <div class="key-box">
+    <span id="key-text">{license_key or 'Key Pending'}</span>
+  </div>
+  <button class="btn btn-primary" onclick="copyKey()">&#128203; Copy License Key</button>
+  {invoice_button_html}
+  <button class="btn btn-secondary" onclick="openPortal()">&#9889; Manage / Cancel Automatic Renewal</button>
+
+  <div class="details">
+    <div class="details-row"><span class="label">Customer Name:</span> <span class="val">{customer_name}</span></div>
+    <div class="details-row"><span class="label">License Type:</span> <span class="val">{license_type.upper()}</span></div>
+    <div class="details-row"><span class="label">Max Devices:</span> <span class="val">{max_devices}</span></div>
+    <div class="details-row"><span class="label">Expiration Date:</span> <span class="val">{expires_at[:10] if len(expires_at) >= 10 else expires_at}</span></div>
+    <div class="details-row"><span class="label">Annual Automatic Renewal:</span> <span class="val" style="color: #166534;">Active (Can be cancelled anytime)</span></div>
+  </div>
+
+  <div class="steps">
+    <strong>How to activate in QGIS:</strong>
+    <ol>
+      <li>Open QGIS with the <strong>Pastastore Viewer</strong> plugin installed.</li>
+      <li>Click the <strong>Pastastore Viewer</strong> toolbar button.</li>
+      <li>Open <strong>Settings</strong> &rarr; <strong>License Manager</strong>.</li>
+      <li>Paste your key above and click <strong>Validate License Online</strong>.</li>
+    </ol>
+  </div>
+</div>
+<script>
+function copyKey() {{
+  const key = document.getElementById('key-text').innerText;
+  navigator.clipboard.writeText(key).then(() => {{
+    alert('License key copied to clipboard!');
+  }}).catch(() => {{
+    const el = document.createElement('textarea');
+    el.value = key;
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+    alert('License key copied!');
+  }});
+}}
+
+async function openPortal() {{
+  const sessId = new URLSearchParams(window.location.search).get('session_id');
+  const keyEl = document.getElementById('key-text');
+  const key = keyEl ? keyEl.innerText : '';
+  try {{
+    const res = await fetch('/create-portal-session', {{
+      method: 'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body: JSON.stringify({{ session_id: sessId, license_key: key }})
+    }});
+    const data = await res.json();
+    if (data.demo) {{
+      alert("[DEMO MODE NOTICE]\\n\\n" + data.message);
+      if (key && key !== 'Key Pending') {{
+        window.location.href = '/manage-subscription?key=' + encodeURIComponent(key);
+      }}
+    }} else if (res.ok && data.portal_url) {{
+
+      window.location.href = data.portal_url;
+    }} else {{
+      alert(data.detail || 'Could not open subscription management portal.');
+    }}
+  }} catch (err) {{
+    alert('Error opening subscription management portal.');
+  }}
+}}
+
+
+</script>
+</body>
+</html>
+"""
+
+
 
 
 @app.get("/admin/licenses")
