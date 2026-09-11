@@ -1,30 +1,14 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
-
+import numpy as np
+import pastas as ps
+import pyqtgraph as pg
+from pastas.stats.core import acf as get_acf
+from pyqtgraph import DateAxisItem
+from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
     QDialog,
     QVBoxLayout,
 )
-from qgis.PyQt.QtCore import Qt
-import pyqtgraph as pg
-from pyqtgraph import DateAxisItem
-import numpy as np
-import pastas as ps
 from scipy.stats import norm, probplot
-
-
-from pastastore._tqdm import tqdm as _tqdm_unused  # noqa: ensure deps available
-from pastas.stats.core import acf as get_acf
 
 
 class DiagnosticsPlotDialog(QDialog):
@@ -66,7 +50,7 @@ class DiagnosticsPlotDialog(QDialog):
 
     def _series_to_xy(self, series):
         """Return (x_epoch_seconds, y_values) arrays, NaN-stripped."""
-        x = series.index.astype('datetime64[s]').astype(np.int64)
+        x = series.index.astype("datetime64[s]").astype(np.int64)
         y = series.values.astype(float)
         mask = np.isfinite(y)
         return x[mask], y[mask]
@@ -108,9 +92,7 @@ class DiagnosticsPlotDialog(QDialog):
         p_ts = self._add_plot(0, 0, axisItems={"bottom": DateAxisItem()})
         n = res.size
         mu = res.mean()
-        p_ts.setTitle(
-            f"{series_label}  (n={n},  μ={mu:.3f})", color="k"
-        )
+        p_ts.setTitle(f"{series_label}  (n={n},  μ={mu:.3f})", color="k")
         p_ts.getAxis("left").setLabel(series_label)
 
         x_ts, y_ts = self._series_to_xy(res)
@@ -125,7 +107,6 @@ class DiagnosticsPlotDialog(QDialog):
         p_acf.getAxis("left").setLabel("Autocorrelation [-]")
         p_acf.addLine(y=0, pen=pg.mkPen("k"))
         self._plot_acf(p_acf, res, self.ALPHA)
-
 
         # ---- Row 0, Col 1: Histogram ----
         p_hist = self._add_plot(0, 1)

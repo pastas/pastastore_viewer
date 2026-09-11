@@ -1,34 +1,20 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
+import pandas as pd
+from qgis.PyQt.QtCore import QDate
 from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
-
-from qgis.PyQt.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QFormLayout,
-    QLineEdit,
     QCheckBox,
     QDateEdit,
+    QDialog,
     QDialogButtonBox,
+    QFormLayout,
     QLabel,
+    QLineEdit,
+    QVBoxLayout,
 )
-from qgis.PyQt.QtCore import QDate
-import pandas as pd
+
 try:
     from .i18n_helper import tr as _i18n_tr
 except ImportError:
     from i18n_helper import tr as _i18n_tr
-
-
 
 
 def _tr(message):
@@ -49,7 +35,9 @@ class BulkModelsDialog(QDialog):
         layout = QVBoxLayout()
         self.setLayout(layout)
 
-        info = QLabel(_tr("Create models for {n} oseries.").format(n=len(oseries_names)))
+        info = QLabel(
+            _tr("Create models for {n} oseries.").format(n=len(oseries_names))
+        )
         layout.addWidget(info)
 
         form = QFormLayout()
@@ -90,7 +78,9 @@ class BulkModelsDialog(QDialog):
 
         self._toggle_solve_fields(False)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

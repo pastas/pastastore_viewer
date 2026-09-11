@@ -1,41 +1,5 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
-
-# -*- coding: utf-8 -*-
-
-from qgis.PyQt.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QLineEdit,
-    QTableWidget,
-    QTableWidgetItem,
-    QMessageBox,
-    QComboBox,
-    QSplitter,
-    QGroupBox,
-    QCheckBox,
-    QProgressDialog,
-    QListWidget,
-    QApplication,
-    QFileDialog,
-    QTabWidget,
-    QWidget,
-)
-from qgis.PyQt.QtCore import Qt, pyqtSignal
-from qgis.PyQt.QtGui import QColor
+import numpy as np
+import pandas as pd
 from qgis.core import (
     Qgis,
     QgsCoordinateReferenceSystem,
@@ -46,14 +10,38 @@ from qgis.core import (
     QgsWkbTypes,
 )
 from qgis.gui import QgsMapTool, QgsRubberBand
-import pandas as pd
-import numpy as np
+from qgis.PyQt.QtCore import QItemSelectionModel, Qt, pyqtSignal
+from qgis.PyQt.QtGui import QColor
+
+# -*- coding: utf-8 -*-
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFileDialog,
+    QGroupBox,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMessageBox,
+    QProgressDialog,
+    QPushButton,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTabWidget,
+    QVBoxLayout,
+    QWidget,
+)
 
 try:
     from .i18n_helper import tr as _i18n_tr
 except ImportError:
     from i18n_helper import tr as _i18n_tr
-
 
 
 def _tr(message):
@@ -86,7 +74,9 @@ class BROMapExtentTool(QgsMapTool):
         self.on_canceled = on_canceled
         self.start_point = None
         self.end_point = None
-        self.rubber_band = QgsRubberBand(canvas, QgsWkbTypes.GeometryType.PolygonGeometry)
+        self.rubber_band = QgsRubberBand(
+            canvas, QgsWkbTypes.GeometryType.PolygonGeometry
+        )
         self.rubber_band.setColor(QColor(31, 119, 180, 120))
         self.rubber_band.setStrokeColor(QColor(31, 119, 180, 220))
         self.rubber_band.setWidth(2)
@@ -247,7 +237,9 @@ class BROImportDialog(QDialog):
         path_layout = QHBoxLayout()
         path_layout.addWidget(QLabel(_tr("Download path (optional):")))
         self.le_download_path = QLineEdit()
-        self.le_download_path.setPlaceholderText(_tr("Leave empty to skip saving files"))
+        self.le_download_path.setPlaceholderText(
+            _tr("Leave empty to skip saving files")
+        )
         path_layout.addWidget(self.le_download_path)
         self.btn_browse_path = QPushButton(_tr("Browse"))
         self.btn_browse_path.clicked.connect(self._browse_download_path)
@@ -265,14 +257,25 @@ class BROImportDialog(QDialog):
         self.table_series = QTableWidget()
         self.table_series.setColumnCount(8)
         self.table_series.setHorizontalHeaderLabels(
-            ["Select", "Name", "Location", "Screen Top", "Screen Bottom", "Count", "Start", "End"]
+            [
+                "Select",
+                "Name",
+                "Location",
+                "Screen Top",
+                "Screen Bottom",
+                "Count",
+                "Start",
+                "End",
+            ]
         )
         self.table_series.verticalHeader().setVisible(False)
         self.table_series.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive
         )
         self.table_series.horizontalHeader().setStretchLastSection(True)
-        self.table_series.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table_series.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
         self.table_series.itemSelectionChanged.connect(self._on_series_selected)
         series_layout.addWidget(self.table_series)
 
@@ -299,7 +302,9 @@ class BROImportDialog(QDialog):
         # Status selector
         metadata_layout.addWidget(QLabel(_tr("Status:")))
         self.list_status = QListWidget()
-        self.list_status.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list_status.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
         self.list_status.setMaximumHeight(80)
         self.list_status.itemSelectionChanged.connect(self._on_metadata_changed)
         metadata_layout.addWidget(self.list_status)
@@ -307,7 +312,9 @@ class BROImportDialog(QDialog):
         # Qualifier selector
         metadata_layout.addWidget(QLabel(_tr("Qualifier:")))
         self.list_qualifier = QListWidget()
-        self.list_qualifier.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list_qualifier.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
         self.list_qualifier.setMaximumHeight(80)
         self.list_qualifier.itemSelectionChanged.connect(self._on_metadata_changed)
         metadata_layout.addWidget(self.list_qualifier)
@@ -315,7 +322,9 @@ class BROImportDialog(QDialog):
         # Observation type selector
         metadata_layout.addWidget(QLabel(_tr("Observation Type:")))
         self.list_obs_type = QListWidget()
-        self.list_obs_type.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.list_obs_type.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
         self.list_obs_type.setMaximumHeight(60)
         self.list_obs_type.itemSelectionChanged.connect(self._on_metadata_changed)
         metadata_layout.addWidget(self.list_obs_type)
@@ -694,17 +703,13 @@ class BROImportDialog(QDialog):
         selected_qualifier = [
             item.text() for item in self.list_qualifier.selectedItems()
         ]
-        selected_obs_type = [
-            item.text() for item in self.list_obs_type.selectedItems()
-        ]
+        selected_obs_type = [item.text() for item in self.list_obs_type.selectedItems()]
 
         filtered_df = df.copy()
         if "status" in df.columns and selected_status:
             filtered_df = filtered_df[filtered_df["status"].isin(selected_status)]
         if "qualifier" in df.columns and selected_qualifier:
-            filtered_df = filtered_df[
-                filtered_df["qualifier"].isin(selected_qualifier)
-            ]
+            filtered_df = filtered_df[filtered_df["qualifier"].isin(selected_qualifier)]
         if "observation_type" in df.columns and selected_obs_type:
             filtered_df = filtered_df[
                 filtered_df["observation_type"].isin(selected_obs_type)
@@ -724,8 +729,6 @@ class BROImportDialog(QDialog):
             if chk:
                 chk.setChecked(False)
         self._update_button_states()
-
-
 
     def _download_gld(self, gld_id, update_progress=True):
         """Download GLD (Groundwater Level Dossier) data."""
@@ -1030,7 +1033,7 @@ class BROImportDialog(QDialog):
 
     def _ingest_extent_gdf(self, gdf):
         added = 0
-        
+
         # Reset the index of the geodataframe so that index columns
         # (like gmw_bro_id and tube_number) are normal columns
         gdf_reset = gdf.reset_index()
@@ -1039,9 +1042,21 @@ class BROImportDialog(QDialog):
             observation = row.get("observation") if "observation" in row else None
             # Do NOT skip if observation is None for two-step download
 
-            gmw_id = row.get("gmw_bro_id") if "gmw_bro_id" in row else row.get("groundwaterMonitoringWell")
-            tube_number = row.get("tube_number") if "tube_number" in row else row.get("tubeNumber")
-            gld_ids = row.get("groundwaterLevelDossier") if "groundwaterLevelDossier" in row else row.get("gld_bro_id")
+            gmw_id = (
+                row.get("gmw_bro_id")
+                if "gmw_bro_id" in row
+                else row.get("groundwaterMonitoringWell")
+            )
+            tube_number = (
+                row.get("tube_number")
+                if "tube_number" in row
+                else row.get("tubeNumber")
+            )
+            gld_ids = (
+                row.get("groundwaterLevelDossier")
+                if "groundwaterLevelDossier" in row
+                else row.get("gld_bro_id")
+            )
 
             if isinstance(gld_ids, (list, tuple)) and len(gld_ids) > 0:
                 base_name = str(gld_ids[0])
@@ -1172,7 +1187,9 @@ class BROImportDialog(QDialog):
                     return str(val)
 
             self.table_series.setItem(i, 3, QTableWidgetItem(_format_pos(screen_top)))
-            self.table_series.setItem(i, 4, QTableWidgetItem(_format_pos(screen_bottom)))
+            self.table_series.setItem(
+                i, 4, QTableWidgetItem(_format_pos(screen_bottom))
+            )
 
             # Count, Start and End dates
             if df is not None:
@@ -1253,7 +1270,7 @@ class BROImportDialog(QDialog):
 
             def _get_xy(dataframe):
                 if isinstance(dataframe.index, pd.DatetimeIndex):
-                    x_values = dataframe.index.astype('datetime64[s]').astype(np.int64)
+                    x_values = dataframe.index.astype("datetime64[s]").astype(np.int64)
                 else:
                     x_values = np.arange(len(dataframe))
 
@@ -1343,10 +1360,14 @@ class BROImportDialog(QDialog):
                         # Filter the DataFrame based on active selections
                         df = self._filter_dataframe(df)
 
-                        metadata["status"] = self._global_filter_selection.get("status", [])
-                        metadata["qualifier"] = self._global_filter_selection.get("qualifier", [])
-                        metadata["observation_type"] = self._global_filter_selection.get(
-                            "observation_type", []
+                        metadata["status"] = self._global_filter_selection.get(
+                            "status", []
+                        )
+                        metadata["qualifier"] = self._global_filter_selection.get(
+                            "qualifier", []
+                        )
+                        metadata["observation_type"] = (
+                            self._global_filter_selection.get("observation_type", [])
                         )
 
                         selected_series[series_name] = {
@@ -1389,10 +1410,14 @@ class BROImportDialog(QDialog):
                         # Filter the DataFrame based on active selections
                         df = self._filter_dataframe(df)
 
-                        metadata["status"] = self._global_filter_selection.get("status", [])
-                        metadata["qualifier"] = self._global_filter_selection.get("qualifier", [])
-                        metadata["observation_type"] = self._global_filter_selection.get(
-                            "observation_type", []
+                        metadata["status"] = self._global_filter_selection.get(
+                            "status", []
+                        )
+                        metadata["qualifier"] = self._global_filter_selection.get(
+                            "qualifier", []
+                        )
+                        metadata["observation_type"] = (
+                            self._global_filter_selection.get("observation_type", [])
                         )
 
                         selected_series[series_name] = {
@@ -1428,10 +1453,10 @@ class BROImportDialog(QDialog):
             return
 
         from qgis.core import (
-            QgsVectorLayer,
             QgsFeature,
-            QgsGeometry,
             QgsField,
+            QgsGeometry,
+            QgsVectorLayer,
         )
         from qgis.PyQt.QtCore import QVariant
 
@@ -1444,11 +1469,13 @@ class BROImportDialog(QDialog):
         layer = QgsVectorLayer("Point?crs=EPSG:28992", "BRO Wells", "memory")
         provider = layer.dataProvider()
 
-        provider.addAttributes([
-            QgsField("Name", QVariant.String),
-            QgsField("GMW", QVariant.String),
-            QgsField("Tube", QVariant.String),
-        ])
+        provider.addAttributes(
+            [
+                QgsField("Name", QVariant.String),
+                QgsField("GMW", QVariant.String),
+                QgsField("Tube", QVariant.String),
+            ]
+        )
         layer.updateFields()
 
         features = []
@@ -1458,11 +1485,13 @@ class BROImportDialog(QDialog):
             if x is not None and y is not None:
                 feat = QgsFeature()
                 feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
-                feat.setAttributes([
-                    name,
-                    metadata.get("GMW", ""),
-                    str(metadata.get("tubeNumber", "")),
-                ])
+                feat.setAttributes(
+                    [
+                        name,
+                        metadata.get("GMW", ""),
+                        str(metadata.get("tubeNumber", "")),
+                    ]
+                )
                 features.append(feat)
 
         if features:
@@ -1471,15 +1500,23 @@ class BROImportDialog(QDialog):
             QgsProject.instance().addMapLayer(layer)
 
             # Style the layer to make it highly visible
-            from qgis.core import QgsSimpleMarkerSymbolLayer, QgsMarkerSymbol, QgsSingleSymbolRenderer
+            from qgis.core import (
+                QgsMarkerSymbol,
+                QgsSimpleMarkerSymbolLayer,
+                QgsSingleSymbolRenderer,
+            )
 
             symbol_layer = QgsSimpleMarkerSymbolLayer()
             if hasattr(symbol_layer, "setShape"):
-                marker_shape = getattr(getattr(Qgis, "MarkerShape", None), "Circle", None)
+                marker_shape = getattr(
+                    getattr(Qgis, "MarkerShape", None), "Circle", None
+                )
                 if marker_shape is not None:
                     symbol_layer.setShape(marker_shape)
                 else:
-                    symbol_layer.setShape(QgsSimpleMarkerSymbolLayer.decodeShape("circle"))
+                    symbol_layer.setShape(
+                        QgsSimpleMarkerSymbolLayer.decodeShape("circle")
+                    )
             else:
                 symbol_layer.setName("circle")
             symbol_layer.setColor(QColor(0, 120, 250, 200))  # Vivid blue

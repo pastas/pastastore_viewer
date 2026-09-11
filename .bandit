@@ -1,4 +1,3 @@
 [bandit]
 targets: .
-exclude: ./dependencies,./tests,./license_server,./build,./.venv
-skips: B101,B110,B112
+exclude: ./dependencies

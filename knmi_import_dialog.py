@@ -1,44 +1,31 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
-
 # -*- coding: utf-8 -*-
 
+import numpy as np
+import pandas as pd
+from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QHBoxLayout,
-    QPushButton,
-    QLabel,
-    QGroupBox,
+    QAbstractItemView,
+    QApplication,
     QCheckBox,
-    QDateTimeEdit,
     QComboBox,
-    QTableWidget,
-    QTableWidgetItem,
+    QDateTimeEdit,
+    QDialog,
+    QGroupBox,
+    QHBoxLayout,
     QHeaderView,
+    QLabel,
     QMessageBox,
     QProgressDialog,
-    QApplication,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
 )
-from qgis.PyQt.QtCore import Qt, pyqtSignal
-import pandas as pd
-import numpy as np
 
 try:
     from .i18n_helper import tr as _i18n_tr
 except ImportError:
     from i18n_helper import tr as _i18n_tr
-
 
 
 def _tr(message):
@@ -98,7 +85,9 @@ class KNMIImportDialog(QDialog):
         layout = QVBoxLayout()
 
         self.lbl_info = QLabel(
-            _tr("Download precipitation (RH) and evaporation (EV24) near oseries locations.")
+            _tr(
+                "Download precipitation (RH) and evaporation (EV24) near oseries locations."
+            )
         )
         self.lbl_info.setWordWrap(True)
         layout.addWidget(self.lbl_info)
@@ -174,7 +163,9 @@ class KNMIImportDialog(QDialog):
             QHeaderView.ResizeMode.Interactive
         )
         self.table_stresses.horizontalHeader().setStretchLastSection(True)
-        self.table_stresses.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table_stresses.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
+        )
         self.table_stresses.itemSelectionChanged.connect(self._on_series_selected)
         content_row.addWidget(self.table_stresses, 1)
 
@@ -222,7 +213,10 @@ class KNMIImportDialog(QDialog):
             raise ValueError("No oseries available.")
 
         oseries_meta = self.store.oseries.copy()
-        if self.x_col not in oseries_meta.columns or self.y_col not in oseries_meta.columns:
+        if (
+            self.x_col not in oseries_meta.columns
+            or self.y_col not in oseries_meta.columns
+        ):
             raise ValueError(
                 "Could not find coordinate columns "
                 f"'{self.x_col}' and '{self.y_col}' in oseries metadata."
@@ -384,7 +378,7 @@ class KNMIImportDialog(QDialog):
 
         x = s.index
         if pd.api.types.is_datetime64_any_dtype(x):
-            x = x.astype('datetime64[s]').astype(np.int64)
+            x = x.astype("datetime64[s]").astype(np.int64)
         y = s.values
 
         self.plot_widget.setTitle(f"Preview: {series_name}", color="k")
@@ -416,7 +410,9 @@ class KNMIImportDialog(QDialog):
         if self._knmi_progress_expected > 0:
             ratio = max(
                 0.0,
-                min(1.0, float(self._knmi_progress_calls) / self._knmi_progress_expected),
+                min(
+                    1.0, float(self._knmi_progress_calls) / self._knmi_progress_expected
+                ),
             )
         else:
             ratio = max(0.0, min(1.0, float(current + 1) / max(total, 1)))
@@ -511,7 +507,9 @@ class KNMIImportDialog(QDialog):
                 return
 
             if self._knmi_progress_dialog:
-                self._knmi_progress_dialog.setLabelText("Processing downloaded observations...")
+                self._knmi_progress_dialog.setLabelText(
+                    "Processing downloaded observations..."
+                )
                 self._knmi_progress_dialog.setValue(92)
                 QApplication.processEvents()
 
@@ -555,7 +553,9 @@ class KNMIImportDialog(QDialog):
                             "meteo_var": meteo_var,
                             "interval": interval,
                             "fill_missing_obs": fill_missing_obs,
-                            "station": row.get("station", getattr(obs, "station", None)),
+                            "station": row.get(
+                                "station", getattr(obs, "station", None)
+                            ),
                         }
                         self.downloaded_stresses[stress_name] = {
                             "series": series,
@@ -610,13 +610,19 @@ class KNMIImportDialog(QDialog):
             self.table_stresses.insertRow(i)
 
             check_item = QTableWidgetItem()
-            check_item.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+            check_item.setFlags(
+                Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
+            )
             check_item.setCheckState(Qt.CheckState.Checked)
             self.table_stresses.setItem(i, 0, check_item)
 
             self.table_stresses.setItem(i, 1, QTableWidgetItem(name))
-            self.table_stresses.setItem(i, 2, QTableWidgetItem(str(meta.get("kind", ""))))
-            self.table_stresses.setItem(i, 3, QTableWidgetItem(str(meta.get("station", ""))))
+            self.table_stresses.setItem(
+                i, 2, QTableWidgetItem(str(meta.get("kind", "")))
+            )
+            self.table_stresses.setItem(
+                i, 3, QTableWidgetItem(str(meta.get("station", "")))
+            )
             self.table_stresses.setItem(i, 4, QTableWidgetItem(str(len(series))))
             self.table_stresses.setItem(i, 5, QTableWidgetItem(str(series.index.min())))
             self.table_stresses.setItem(i, 6, QTableWidgetItem(str(series.index.max())))
@@ -636,7 +642,9 @@ class KNMIImportDialog(QDialog):
                 selected[name] = self.downloaded_stresses[name]
 
         if not selected:
-            QMessageBox.warning(self, "No Selection", "Select at least one stress series.")
+            QMessageBox.warning(
+                self, "No Selection", "Select at least one stress series."
+            )
             return
 
         self.stresses_to_add.emit(selected)
