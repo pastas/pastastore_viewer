@@ -542,45 +542,10 @@ def request_license_ui() -> str:
     </div>
   </div>
   
-  <p style="font-size: 13px; color: #666; margin-top: 16px;"><em>All prices listed above are excluding VAT / BTW. Applicable tax will be calculated automatically at checkout based on your billing address / VAT ID.</em></p>
+  <p style="font-size: 13px; color: #666; margin-top: 16px;"><em>All prices listed above are excluding VAT / BTW.</em></p>
   <p style="font-size: 13px; color: #666;"><strong>Need more devices?</strong> Contact us for custom plans. <strong>Education/Non-profit?</strong> Discounts available upon request.</p>
 
-  <div style="background: #e0f2fe; border: 1px solid #bae6fd; border-radius: 8px; padding: 20px; margin: 24px 0;">
-    <h2 style="margin-top: 0; color: #0369a1;">&#9889; Buy Online &amp; Activate Instantly</h2>
-    <p style="font-size: 13px; color: #0369a1; margin-bottom: 14px;">Pay securely via Stripe using <strong>iDEAL, Creditcard, Bancontact, or Wero</strong>. Receive your license key and PDF invoice immediately. <em>(VAT / BTW calculated automatically at checkout)</em>.</p>
-    
-    <form id="stripe-checkout-form">
-      <label for="st-name">Full Name / Organisation *</label>
-      <input type="text" id="st-name" required placeholder="e.g. Acme Corp / Jane Doe" />
-
-      <label for="st-email">E-mail address *</label>
-      <input type="email" id="st-email" required placeholder="your@email.com" />
-
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px;">
-        <div>
-          <label for="st-ltype">License Type *</label>
-          <select id="st-ltype" required>
-            <option value="pro">Pro (€349/yr excl. VAT)</option>
-            <option value="proNL" selected>ProNL (€499/yr excl. VAT)</option>
-          </select>
-        </div>
-        <div>
-          <label for="st-devices">Devices *</label>
-          <select id="st-devices" required>
-            <option value="1">1 Device</option>
-            <option value="3">3 Devices</option>
-            <option value="10">10 Devices</option>
-          </select>
-        </div>
-      </div>
-
-
-      <button id="st-submit-btn" type="submit" style="background: #0284c7; margin-top: 16px;">Pay &amp; Activate Now (Stripe Checkout)</button>
-      <div id="st-error" class="error"></div>
-    </form>
-  </div>
-
-  <h2>Custom Quote / Inquiry Form</h2>
+  <h2>License Request Form</h2>
     <form id="license-form" action="https://formspree.io/f/mpqbjbnv" method="POST">
 
     <label for="name">Full name *</label>
@@ -613,50 +578,6 @@ def request_license_ui() -> str:
   <p class="note">Your information is used solely for license administration.</p>
 </div>
 <script>
-const stForm = document.getElementById('stripe-checkout-form');
-const stBtn = document.getElementById('st-submit-btn');
-const stErr = document.getElementById('st-error');
-
-if (stForm) {
-  stForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    stErr.style.display = 'none';
-    stErr.textContent = '';
-    const origText = stBtn.textContent;
-    stBtn.disabled = true;
-    stBtn.textContent = 'Redirecting to Stripe...';
-
-    try {
-      const payload = {
-        customer_name: document.getElementById('st-name').value.trim(),
-        customer_email: document.getElementById('st-email').value.trim(),
-        license_type: document.getElementById('st-ltype').value,
-        max_devices: parseInt(document.getElementById('st-devices').value, 10)
-      };
-
-      const res = await fetch('/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json();
-      if (res.ok && data.checkout_url) {
-        window.location.href = data.checkout_url;
-      } else {
-        stErr.textContent = data.detail || 'Failed to initiate Stripe Checkout.';
-        stErr.style.display = 'block';
-      }
-    } catch (err) {
-      stErr.textContent = 'Network error. Please try again.';
-      stErr.style.display = 'block';
-    } finally {
-      stBtn.disabled = false;
-      stBtn.textContent = origText;
-    }
-  });
-}
-
 const form = document.getElementById('license-form');
 const submitBtn = document.getElementById('submit-btn');
 const errorEl = document.getElementById('form-error');
@@ -1088,25 +1009,10 @@ def calculate_price_cents(license_type: str, max_devices: int) -> int:
 
 @app.post("/create-checkout-session")
 def create_checkout_session(req: CreateCheckoutRequest, request: Request) -> dict[str, Any]:
-    base_url = str(request.base_url).rstrip("/")
-
-    if not STRIPE_SECRET_KEY:
-        # Demo mode for testing local server without a live Stripe key
-        demo_session_id = f"demo_session_{uuid.uuid4().hex[:12]}"
-        insert_license_record(
-            customer_name=req.customer_name,
-            license_type=req.license_type,
-            days_valid=365,
-            max_devices=req.max_devices,
-            stripe_session_id=demo_session_id,
-            stripe_customer_id="cus_demo_12345",
-            stripe_subscription_id="sub_demo_12345",
-            auto_renew=1,
-        )
-        return {
-            "checkout_url": f"{base_url}/checkout/success?session_id={demo_session_id}",
-            "session_id": demo_session_id,
-        }
+    raise HTTPException(
+        status_code=503,
+        detail="Online payment is currently disabled. Please use the license request form on /request-license."
+    )
 
     stripe.api_key = STRIPE_SECRET_KEY
     price_cents = calculate_price_cents(req.license_type, req.max_devices)
