@@ -68,8 +68,9 @@ def _apply_scipy_callback_patch():
 
         _ls_no_cb._callback_patched = True
         _ls_mod.least_squares = _ls_no_cb
-    except Exception:
-        pass
+    except Exception as err:
+        import logging
+        logging.getLogger(__name__).debug("Failed to patch least_squares callback: %s", err)
 
 
 class ModelEditorDialog(QDialog):
@@ -469,8 +470,9 @@ class ModelEditorDialog(QDialog):
                 self.plot_widget.plot(
                     x, y, pen=pg.mkPen("#1f77b4", width=2), name="Simulation"
                 )
-        except:
-            pass
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).debug("Simulation plot failed: %s", err)
 
         # Auto-fit the plot to show all data
         self.fit_plot()
@@ -970,9 +972,10 @@ class ModelEditorDialog(QDialog):
                         val = vary_item.text().lower() == "true"
                         model.set_parameter(name=pname, vary=val)
 
-                except Exception:
+                except Exception as err:
                     # Parameter might not be in the new model structure
-                    pass
+                    import logging
+                    logging.getLogger(__name__).debug("Skipping parameter update (not in model): %s", err)
 
             # Noise Model
             if self.cbo_noise.currentText() == "ArNoiseModel":

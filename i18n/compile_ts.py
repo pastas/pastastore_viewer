@@ -7,7 +7,10 @@ Usage: python compile_ts.py pastastore_viewer_nl.ts
 import os
 import struct
 import sys
-import xml.etree.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET  # nosec B405
 
 # Qt .qm magic bytes (16 bytes)
 QM_MAGIC = bytes([
@@ -78,7 +81,7 @@ def build_message_entry(context: str, source: str, translation: str, comment: st
 
 
 def ts_to_qm(ts_path: str) -> bytes:
-    tree = ET.parse(ts_path)
+    tree = ET.parse(ts_path)  # nosec B314
     root = tree.getroot()
 
     messages_data = bytearray()

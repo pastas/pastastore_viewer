@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 
 import os
-import xml.etree.ElementTree as ET
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    import xml.etree.ElementTree as ET  # nosec B405
 
 try:
     from qgis.PyQt.QtCore import QCoreApplication, QLocale, QSettings
@@ -49,8 +52,9 @@ def _is_dutch_locale():
         qgis_edit = QCoreApplication.translate("Qgis", "Edit")
         if isinstance(qgis_edit, str) and qgis_edit.lower().startswith("bewerk"):
             return True
-    except Exception:
-        pass
+    except Exception as err:
+        import logging
+        logging.getLogger(__name__).debug("Error checking Dutch locale: %s", err)
     return False
 
 
@@ -73,7 +77,7 @@ def _load_nl_translations():
         return translations
 
     try:
-        tree = ET.parse(ts_path)
+        tree = ET.parse(ts_path)  # nosec B314
         root = tree.getroot()
 
         for context in root.findall("context"):
@@ -98,8 +102,9 @@ def _load_nl_translations():
                 source_norm = _normalize_key(source)
                 if source_norm and source_norm not in translations:
                     translations[source_norm] = translated
-    except Exception:
-        pass
+    except Exception as err:
+        import logging
+        logging.getLogger(__name__).debug("Failed to load TS translations: %s", err)
 
     _NL_TRANSLATIONS = translations
     return translations

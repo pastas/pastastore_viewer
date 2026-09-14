@@ -1103,8 +1103,9 @@ class BROImportDialog(QDialog):
                 try:
                     metadata["x"] = float(geometry.x)
                     metadata["y"] = float(geometry.y)
-                except Exception:
-                    pass
+                except (ValueError, TypeError, AttributeError, Exception) as err:
+                    import logging
+                    logging.getLogger(__name__).debug("Failed to extract geometry x/y: %s", err)
             else:
                 x_val = row.get("x")
                 y_val = row.get("y")

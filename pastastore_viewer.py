@@ -209,8 +209,9 @@ class PastastoreViewer:
                 for line in handle:
                     if line.strip().startswith("version="):
                         return line.split("=", 1)[1].strip() or "0.1"
-        except Exception:
-            pass
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).debug("Failed to read plugin version: %s", err)
         return "0.1"
 
     def tr(self, message):
@@ -308,8 +309,9 @@ class PastastoreViewer:
             QgsProject.instance().readProject.disconnect(self.on_project_read)
             QgsProject.instance().cleared.disconnect(self.on_project_new)
             QgsProject.instance().projectSaved.disconnect(self.on_project_write)
-        except:
-            pass
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).debug("Disconnecting signals in unload failed: %s", err)
 
     def create_dock(self):
         """Ensures the dock widgets are created and state is restored."""
@@ -543,8 +545,9 @@ class PastastoreViewer:
             scope = "PastastoreViewer"
             QgsProject.instance().writeEntry(scope, "last_selected_category", "")
             QgsProject.instance().writeEntry(scope, "last_selected_names", "[]")
-        except Exception:
-            pass
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).debug("Clearing project selection state failed: %s", err)
 
     def on_project_write(self):
         """Called when the project is being saved."""
@@ -786,8 +789,9 @@ class PastastoreViewer:
         finally:
             try:
                 busy.close()
-            except Exception:
-                pass
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).debug("Closing busy dialog failed: %s", err)
 
     def _load_from_path(self, filename):
         if filename:
@@ -1084,7 +1088,9 @@ class PastastoreViewer:
                     attrs = [str(idx)] + [str(row[col]) for col in valid_cols]
                     feat.setAttributes(attrs)
                     feats.append(feat)
-                except:
+                except Exception as err:
+                    import logging
+                    logging.getLogger(__name__).debug("Failed to process map feature row: %s", err)
                     continue
             pr.addFeatures(feats)
             layer.updateExtents()
@@ -1138,8 +1144,9 @@ class PastastoreViewer:
             QgsProject.instance().writeEntry(
                 scope, "last_selected_names", json.dumps(names)
             )
-        except Exception:
-            pass
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).debug("Writing selection to project entries failed: %s", err)
 
         if self.is_updating_selection:
             return
@@ -1200,8 +1207,9 @@ class PastastoreViewer:
                 names = [names]
             if names:
                 self.dock_widget.select_items_in_list(category, names)
-        except Exception:
-            pass
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).debug("Restoring selection from project failed: %s", err)
 
     def on_tab_changed(self, active_category):
         categories = ["oseries", "stresses", "models"]
@@ -1319,7 +1327,9 @@ class PastastoreViewer:
                                 "r2": ml.stats.rsq(),
                             }
                         )
-                    except:
+                    except Exception as err:
+                        import logging
+                        logging.getLogger(__name__).debug("Failed to extract model data for %s: %s", name, err)
                         continue
 
                 if self.plot_dock:
@@ -1897,8 +1907,9 @@ class PastastoreViewer:
                     params = ml.parameters["optimal"]
                     val = float(params.get(stat_key, float("nan")))
                 records.append((mname, x, y, val))
-            except Exception:
-                pass
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).debug("Failed stats calculation for model %s: %s", mname, err)
 
         progress.setValue(n)
 
@@ -2369,13 +2380,9 @@ class PastastoreViewer:
                 if hasattr(self.store, "del_oseries"):
                     try:
                         self.store.del_oseries(oseries_name)
-                    except Exception:
-                        pass
-                elif hasattr(self.store, "del_oseries"):
-                    try:
-                        self.store.del_oseries(oseries_name)
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        import logging
+                        logging.getLogger(__name__).debug("Failed to delete oseries %s: %s", oseries_name, err)
 
                 self._add_oseries_to_store(modified_series, oseries_name, metadata)
                 self.store_modified = True
@@ -2428,13 +2435,15 @@ class PastastoreViewer:
                 if hasattr(self.store, "del_stress"):
                     try:
                         self.store.del_stress(stress_name)
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        import logging
+                        logging.getLogger(__name__).debug("Failed to delete stress %s: %s", stress_name, err)
                 elif hasattr(self.store, "del_stresses"):
                     try:
                         self.store.del_stresses(stress_name)
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        import logging
+                        logging.getLogger(__name__).debug("Failed to delete stresses %s: %s", stress_name, err)
 
                 # Add modified stress series back to store
                 self._add_stress_to_store(modified_series, stress_name, metadata)

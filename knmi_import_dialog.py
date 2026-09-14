@@ -236,8 +236,9 @@ class KNMIImportDialog(QDialog):
                 tmax = pd.to_datetime(tmintmax.tmax.max())
                 if pd.notna(tmin) and pd.notna(tmax):
                     return tmin, tmax
-        except Exception:
-            pass
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).debug("Failed to get_tmin_tmax from store: %s", err)
 
         tmin = None
         tmax = None
@@ -253,7 +254,9 @@ class KNMIImportDialog(QDialog):
                 smax = pd.to_datetime(s.index.max())
                 tmin = smin if tmin is None else min(tmin, smin)
                 tmax = smax if tmax is None else max(tmax, smax)
-            except Exception:
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).debug("Failed to process oseries %s for timerange: %s", name, err)
                 continue
 
         if tmin is None or tmax is None:
@@ -595,8 +598,9 @@ class KNMIImportDialog(QDialog):
                 if self._knmi_progress_dialog:
                     self._knmi_progress_dialog.setValue(100)
                     self._knmi_progress_dialog.close()
-            except Exception:
-                pass
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).debug("Error closing KNMI progress dialog: %s", err)
             self._knmi_progress_dialog = None
             self._knmi_progress_calls = 0
             self._knmi_progress_expected = 0

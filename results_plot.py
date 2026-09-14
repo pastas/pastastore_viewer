@@ -1,37 +1,26 @@
-from qgis.PyQt.QtCore import Qt, QItemSelectionModel
-from qgis.PyQt.QtWidgets import (
-    QAbstractItemView,
-    QFrame,
-    QHeaderView,
-    QComboBox,
-    QSizePolicy,
-    QDialogButtonBox,
-    QMessageBox,
-    QDialog,
-    QMenu,
-)
-
-from qgis.PyQt.QtWidgets import (
-    QDialog,
-    QVBoxLayout,
-    QWidget,
-    QScrollArea,
-    QTableWidget,
-    QTableWidgetItem,
-    QGraphicsProxyWidget,
-    QPushButton,
-    QHBoxLayout,
-    QMenu,
-    QAction,
-)
-
-from qgis.PyQt.QtCore import Qt, QTimer
-from qgis.core import QgsProject
-import pyqtgraph as pg
-from pyqtgraph import DateAxisItem
 import numpy as np
 import pandas as pd
 import pastas as ps
+import pyqtgraph as pg
+from pyqtgraph import DateAxisItem
+from qgis.core import QgsProject
+from qgis.PyQt.QtCore import Qt, QTimer
+from qgis.PyQt.QtWidgets import (
+    QAbstractItemView,
+    QAction,
+    QDialog,
+    QFrame,
+    QGraphicsProxyWidget,
+    QHBoxLayout,
+    QHeaderView,
+    QMenu,
+    QPushButton,
+    QScrollArea,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 try:
     from .plot_toolbar import PlotNavigationWidget
@@ -365,7 +354,9 @@ class ResultsPlotDialog(QDialog):
                 err_str = f"{stderr:.4f}" if not np.isnan(stderr) else "-"
                 params_table.setItem(i, 2, QTableWidgetItem(err_str))
 
-        params_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        params_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )
         params_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         params_table.setStyleSheet("background-color: white; gridline-color: #ddd;")
 

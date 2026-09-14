@@ -195,8 +195,9 @@ class PastastorePlotDock(QDockWidget):
             try:
                 r2 = model_obj.stats.rsq()
                 self.plot_widget.setTitle(f"{title} (R²: {r2:.3f})", color="k")
-            except:
-                pass
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).debug("Setting plot title with R² failed: %s", err)
 
         self.fit_plot()
 

@@ -478,8 +478,9 @@ class PastastoreMainDock(QDockWidget):
                 btn_toggle.setToolButtonStyle(
                     Qt.ToolButtonStyle.ToolButtonTextBesideIcon
                 )
-        except Exception:
-            pass
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).debug("Failed to set filter theme icon: %s", err)
 
         btn_clear = QToolButton()
         btn_clear.setText(_tr("Clear"))
@@ -1087,8 +1088,9 @@ class PastastoreMainDock(QDockWidget):
                 for oname, mnames in store.oseries_models.items():
                     for mname in mnames:
                         oseries_lookup[mname] = oname
-            except Exception:
-                pass
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).debug("Failed to build oseries_lookup: %s", err)
             # Rebuild column headers preserving extra cols
             headers = ["Name", "Oseries"] + [
                 next((lbl for lbl, s in self.AVAILABLE_MODEL_STATS if s == stat), stat)
@@ -1351,6 +1353,7 @@ class PastastoreMainDock(QDockWidget):
             self.is_restoring = False
             try:
                 self.visibilityChanged.disconnect(self.save_state_to_project)
-            except:
-                pass
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).debug("Signal disconnect failed: %s", err)
             self.visibilityChanged.connect(self.save_state_to_project)

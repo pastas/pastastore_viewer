@@ -35,13 +35,15 @@ def _normalize_base_url(base_url: str) -> str:
 
 
 def _post_json(url: str, body: dict[str, Any], timeout: int = 10) -> dict[str, Any]:
+    if not url.startswith(("http://", "https://")):
+        raise ValueError(f"Invalid URL scheme in {url}")
     request = urllib.request.Request(
         url=url,
         method="POST",
         data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
         data = response.read().decode("utf-8")
     return json.loads(data)
 
@@ -209,8 +211,9 @@ class LicenseManager:
                         "machine_id": self.machine_id,
                     },
                 )
-            except Exception:
-                pass
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).debug("Failed remote deactivation: %s", err)
 
         if self.license_file.exists():
             self.license_file.unlink()

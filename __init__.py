@@ -44,8 +44,9 @@ def _install_plugin_translator():
         if translator.load(qm_path):
             QCoreApplication.installTranslator(translator)
             return translator
-    except Exception:
-        pass
+    except Exception as err:
+        import logging
+        logging.getLogger(__name__).debug("Failed to install plugin translator: %s", err)
     return None
 
 
