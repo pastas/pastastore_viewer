@@ -60,26 +60,88 @@ def _tr(message):
         return message
 
 
-def _get_bundled_package_names():
-    """Get top-level package names inside the dependencies directory."""
-    names = set()
+_BUNDLED_PACKAGES = {
+    "pastas",
+    "pastastore",
+    "pyqtgraph",
+    "brodata",
+    "hydropandas",
+    "tqdm",
+}
+_PLUGIN_DEPS_MODULES = {}
+
+
+def _is_plugin_caller(frame):
+    """Check if an import call originated from within pastastore_viewer or its dependencies."""
+    while frame:
+        fname = frame.f_code.co_filename
+        if fname:
+            abs_fname = os.path.abspath(fname)
+            if abs_fname.lower().startswith(os.path.abspath(_PLUGIN_DIR).lower()):
+                return True
+        frame = frame.f_back
+    return False
+
+
+def _install_scoped_import_hook():
+    """Install import hook to isolate bundled dependencies to pastastore_viewer only."""
+    import builtins
+
+    if getattr(_install_scoped_import_hook, "_installed", False):
+        return
+
+    # Pre-load dependencies into _PLUGIN_DEPS_MODULES
     if os.path.isdir(_DEPS_DIR):
-        for entry in os.listdir(_DEPS_DIR):
-            entry_path = os.path.join(_DEPS_DIR, entry)
-            if (
-                os.path.isdir(entry_path)
-                and not entry.endswith((".dist-info", ".egg-info"))
-                and entry != "__pycache__"
-            ):
-                names.add(entry)
-            elif os.path.isfile(entry_path) and entry.endswith(".py"):
-                names.add(entry[:-3])
-    return names
+        if _DEPS_DIR not in sys.path:
+            sys.path.insert(0, _DEPS_DIR)
+
+        try:
+            for pkg_name in ["pastas", "pastastore", "pyqtgraph", "brodata", "hydropandas", "tqdm"]:
+                try:
+                    importlib.import_module(pkg_name)
+                except Exception:
+                    pass
+        finally:
+            if _DEPS_DIR in sys.path:
+                sys.path.remove(_DEPS_DIR)
+
+        for k, v in list(sys.modules.items()):
+            if k.split(".")[0] in _BUNDLED_PACKAGES:
+                mod_file = getattr(v, "__file__", "") or ""
+                if os.path.abspath(mod_file).lower().startswith(os.path.abspath(_DEPS_DIR).lower()):
+                    _PLUGIN_DEPS_MODULES[k] = sys.modules.pop(k)
+
+    orig_import = builtins.__import__
+
+    def scoped_import(name, globals=None, locals=None, fromlist=(), level=0):
+        frame = sys._getframe(1)
+        if _is_plugin_caller(frame):
+            for k, v in _PLUGIN_DEPS_MODULES.items():
+                if k not in sys.modules:
+                    sys.modules[k] = v
+            if _DEPS_DIR not in sys.path:
+                sys.path.insert(0, _DEPS_DIR)
+            try:
+                return orig_import(name, globals, locals, fromlist, level)
+            finally:
+                if _DEPS_DIR in sys.path:
+                    sys.path.remove(_DEPS_DIR)
+        else:
+            for k in list(_PLUGIN_DEPS_MODULES.keys()):
+                if k in sys.modules and sys.modules[k] is _PLUGIN_DEPS_MODULES[k]:
+                    sys.modules.pop(k, None)
+            if _DEPS_DIR in sys.path:
+                sys.path.remove(_DEPS_DIR)
+            return orig_import(name, globals, locals, fromlist, level)
+
+    builtins.__import__ = scoped_import
+    _install_scoped_import_hook._installed = True
 
 
 @contextmanager
 def _isolated_import():
     """Temporarily prepend dependencies folder to sys.path for plugin imports only."""
+    _install_scoped_import_hook()
     added_paths = []
     if os.path.isdir(_DEPS_DIR):
         if _DEPS_DIR not in sys.path:
@@ -96,7 +158,6 @@ def _isolated_import():
     try:
         yield
     finally:
-        # Remove added paths from sys.path so dependencies/ folder is not accessible to other plugins
         for path in reversed(added_paths):
             try:
                 sys.path.remove(path)
@@ -104,6 +165,7 @@ def _isolated_import():
                 pass
 
 
+_install_scoped_import_hook()
 _PLUGIN_TRANSLATOR = _install_plugin_translator()
 
 

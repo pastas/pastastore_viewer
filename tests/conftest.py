@@ -72,9 +72,27 @@ def plugin_dir():
     return str(PLUGIN_DIR)
 
 
-@pytest.fixture
-def license_dir(temp_dir):
-    """Create a temporary license directory."""
-    license_path = Path(temp_dir) / "license"
-    license_path.mkdir()
-    return str(license_path)
+@pytest.fixture(scope="session", autouse=True)
+def qapp():
+    """Ensure QApplication / QgsApplication is initialized for Qt widget tests."""
+    os.environ["QT_QPA_PLATFORM"] = "offscreen"
+    try:
+        from qgis.core import QgsApplication
+        if not QgsApplication.instance():
+            qapp_inst = QgsApplication([], False)
+            qapp_inst.initQgis()
+            yield qapp_inst
+            qapp_inst.exitQgis()
+            return
+    except Exception:
+        pass
+
+    try:
+        from qgis.PyQt.QtWidgets import QApplication
+        if not QApplication.instance():
+            yield QApplication([])
+            return
+    except Exception:
+        pass
+    yield None
+

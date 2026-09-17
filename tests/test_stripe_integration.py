@@ -7,6 +7,8 @@ import sys
 import unittest.mock as mock
 from pathlib import Path
 import pytest
+
+fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 # Add license_server directory to sys.path
