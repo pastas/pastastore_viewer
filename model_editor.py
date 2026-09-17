@@ -814,7 +814,7 @@ class ModelEditorDialog(QDialog):
             evp = model.stats.evp()
             r2 = model.stats.rsq()
             self.lbl_stats.setText(f"Stats: E.V.P.: {evp:.2f} | R2: {r2:.3f}")
-        except:
+        except Exception:
             self.lbl_stats.setText("Stats: Not solved")
 
     def _apply_model_changes(self, solve=False, show_progress=False):

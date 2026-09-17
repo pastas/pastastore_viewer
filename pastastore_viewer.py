@@ -1045,7 +1045,7 @@ class PastastoreViewer:
                 if hasattr(data, "index"):
                     try:
                         df = pd.DataFrame(index=data.index)
-                    except:
+                    except Exception:
                         return
                     data_df = df
                 else:

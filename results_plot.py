@@ -287,7 +287,7 @@ class ResultsPlotDialog(QDialog):
         try:
             r2_val = ml.stats.rsq()
             p1.setTitle(f"Observations & Simulation (R²: {r2_val:.3f})", color="k")
-        except:
+        except Exception:
             p1.setTitle("Observations & Simulation (Not Solved)", color="k")
         p1.addLegend()
         p1.showGrid(x=True, y=True)
