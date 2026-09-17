@@ -258,14 +258,14 @@ class BROImportDialog(QDialog):
         self.table_series.setColumnCount(8)
         self.table_series.setHorizontalHeaderLabels(
             [
-                "Select",
-                "Name",
-                "Location",
-                "Screen Top",
-                "Screen Bottom",
-                "Count",
-                "Start",
-                "End",
+                _tr("Select"),
+                _tr("Name"),
+                _tr("Location"),
+                _tr("Screen Top"),
+                _tr("Screen Bottom"),
+                _tr("Count"),
+                _tr("Start"),
+                _tr("End"),
             ]
         )
         self.table_series.verticalHeader().setVisible(False)
@@ -286,6 +286,12 @@ class BROImportDialog(QDialog):
         self.btn_deselect_all_locations = QPushButton(_tr("Deselect All Locations"))
         self.btn_deselect_all_locations.clicked.connect(self._deselect_all_locations)
         table_selection_layout.addWidget(self.btn_deselect_all_locations)
+
+        self.btn_download_obs = QPushButton(_tr("Download Selected Observations"))
+        self.btn_download_obs.clicked.connect(self._download_selected_observations)
+        self.btn_download_obs.setEnabled(False)
+        table_selection_layout.addWidget(self.btn_download_obs)
+
         table_selection_layout.addStretch()
         series_layout.addLayout(table_selection_layout)
 
@@ -336,7 +342,7 @@ class BROImportDialog(QDialog):
 
         # Right side: Plot
         if HAS_PYQTGRAPH:
-            right_widget = QGroupBox("Preview")
+            right_widget = QGroupBox(_tr("Preview"))
             right_widget.setMinimumWidth(0)
             right_layout = QVBoxLayout()
 
@@ -351,8 +357,8 @@ class BROImportDialog(QDialog):
                 ax.setPen("k")
                 ax.setTextPen("k")
 
-            self.plot_widget.setLabel("left", "Value")
-            self.plot_widget.setLabel("bottom", "Time")
+            self.plot_widget.setLabel("left", _tr("Value"))
+            self.plot_widget.setLabel("bottom", _tr("Time"))
 
             right_layout.addWidget(self.plot_widget)
             right_widget.setLayout(right_layout)
@@ -366,11 +372,6 @@ class BROImportDialog(QDialog):
         # Bottom buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
-
-        self.btn_download_obs = QPushButton(_tr("Download Selected Observations"))
-        self.btn_download_obs.clicked.connect(self._download_selected_observations)
-        self.btn_download_obs.setEnabled(False)
-        button_layout.addWidget(self.btn_download_obs)
 
         self.btn_add_store = QPushButton(_tr("Add to Store"))
         self.btn_add_store.clicked.connect(self._add_to_store)
@@ -1018,8 +1019,8 @@ class BROImportDialog(QDialog):
 
             QMessageBox.information(
                 self,
-                "Extent Query Complete",
-                f"Found {added} locations in the selected map extent. You can now select locations and download observations.",
+                _tr("Extent Query Complete"),
+                _tr("Found {} locations in the selected map extent. You can now select locations and download observations.").format(added),
             )
         except self._ExtentDownloadCanceled:
             return
@@ -1377,7 +1378,7 @@ class BROImportDialog(QDialog):
                         }
 
         if not selected_series:
-            QMessageBox.warning(self, "Warning", "No series selected.")
+            QMessageBox.warning(self, _tr("Warning"), _tr("No series selected."))
             return
 
         # Emit signal with selected series
@@ -1385,8 +1386,8 @@ class BROImportDialog(QDialog):
 
         QMessageBox.information(
             self,
-            "Success",
-            f"Added {len(selected_series)} series to the store.",
+            _tr("Success"),
+            _tr("Added {} series to the store.").format(len(selected_series)),
         )
 
         self.accept()
@@ -1556,9 +1557,9 @@ class BROImportDialog(QDialog):
 
         # Create progress dialog
         self.progress_dialog = QProgressDialog(
-            "Downloading selected observations...", "Cancel", 0, 100, self
+            _tr("Downloading selected observations..."), _tr("Cancel"), 0, 100, self
         )
-        self.progress_dialog.setWindowTitle("BRO Observations Download")
+        self.progress_dialog.setWindowTitle(_tr("BRO Observations Download"))
         self.progress_dialog.setWindowModality(Qt.WindowModality.WindowModal)
         self.progress_dialog.setMinimumDuration(0)
         self.progress_dialog.setValue(0)
@@ -1576,7 +1577,7 @@ class BROImportDialog(QDialog):
                 progress = int((idx / total) * 100)
                 if self.progress_dialog:
                     self.progress_dialog.setLabelText(
-                        f"Downloading observations {idx + 1}/{total} ({name})..."
+                        _tr("Downloading observations {}/{} ({})").format(idx + 1, total, name)
                     )
                     self.progress_dialog.setValue(progress)
                     QApplication.processEvents()
@@ -1608,8 +1609,8 @@ class BROImportDialog(QDialog):
 
             QMessageBox.information(
                 self,
-                "Download Complete",
-                f"Successfully downloaded observations for {downloaded_count} locations.",
+                _tr("Download Complete"),
+                _tr("Successfully downloaded observations for {} locations.").format(downloaded_count),
             )
 
         except Exception as e:

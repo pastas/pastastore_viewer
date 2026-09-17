@@ -328,6 +328,154 @@ Even geduld.</translation>
         <translation>Alle locaties deselecteren</translation>
     </message>
     <message>
+        <source>Download Selected Observations</source>
+        <translation>Geselecteerde waarnemingen downloaden</translation>
+    </message>
+    <message>
+        <source>Download selected observations</source>
+        <translation>Geselecteerde waarnemingen downloaden</translation>
+    </message>
+    <message>
+        <source>Downloading selected observations...</source>
+        <translation>Geselecteerde waarnemingen downloaden...</translation>
+    </message>
+    <message>
+        <source>Downloading observations {}/{} ({})</source>
+        <translation>Waarnemingen downloaden {}/{} ({})</translation>
+    </message>
+    <message>
+        <source>Extent Query Complete</source>
+        <translation>Gebiedszoekopdracht voltooid</translation>
+    </message>
+    <message>
+        <source>Found {} locations in the selected map extent. You can now select locations and download observations.</source>
+        <translation>{} locaties gevonden in de geselecteerde kaartomvang. U kunt nu locaties selecteren en waarnemingen downloaden.</translation>
+    </message>
+    <message>
+        <source>BRO Download</source>
+        <translation>BRO Downloaden</translation>
+    </message>
+    <message>
+        <source>Drag a rectangle on the map to select BRO data</source>
+        <translation>Sleep een rechthoek op de kaart om BRO-gegevens te selecteren</translation>
+    </message>
+    <message>
+        <source>BRO Extent Query</source>
+        <translation>BRO Gebiedszoekopdracht</translation>
+    </message>
+    <message>
+        <source>BRO Observations Download</source>
+        <translation>BRO Waarnemingen Downloaden</translation>
+    </message>
+    <message>
+        <source>Download Complete</source>
+        <translation>Download voltooid</translation>
+    </message>
+    <message>
+        <source>Successfully downloaded observations for {} locations.</source>
+        <translation>Waarnemingen succesvol gedownload voor {} locaties.</translation>
+    </message>
+    <message>
+        <source>Save Pastastore</source>
+        <translation>Pastastore opslaan</translation>
+    </message>
+    <message>
+        <source>The pastastore has been modified. Do you want to save it?</source>
+        <translation>De pastastore is gewijzigd. Wilt u deze opslaan?</translation>
+    </message>
+    <message>
+        <source>The current pastastore is in-memory and has not been saved to a zip file. Do you want to save it now?</source>
+        <translation>De huidige pastastore bevindt zich in het geheugen en is nog niet opgeslagen als zip-bestand. Wilt u deze nu opslaan?</translation>
+    </message>
+    <message>
+        <source>Pastastore already loaded</source>
+        <translation>Pastastore al geladen</translation>
+    </message>
+    <message>
+        <source>A pastastore is already loaded. Do you want to replace it or merge the new data?</source>
+        <translation>Er is al een pastastore geladen. Wilt u deze vervangen of de nieuwe gegevens samenvoegen?</translation>
+    </message>
+    <message>
+        <source>Replace</source>
+        <translation>Vervangen</translation>
+    </message>
+    <message>
+        <source>Merge</source>
+        <translation>Samenvoegen</translation>
+    </message>
+    <message>
+        <source>Create New Pastastore</source>
+        <translation>Nieuwe pastastore aanmaken</translation>
+    </message>
+    <message>
+        <source>A pastastore is already loaded. Create a new empty pastastore and replace the current one?</source>
+        <translation>Er is al een pastastore geladen. Wilt u een nieuwe lege pastastore aanmaken en de huidige vervangen?</translation>
+    </message>
+    <message>
+        <source>Added {} series from BRO.</source>
+        <translation>{} reeksen toegevoegd uit BRO.</translation>
+    </message>
+    <message>
+        <source>Added {} KNMI stress series.</source>
+        <translation>{} KNMI-reeks(en) toegevoegd.</translation>
+    </message>
+    <message>
+        <source>Added {} series to the store.</source>
+        <translation>{} reeksen toegevoegd aan de store.</translation>
+    </message>
+    <message>
+        <source>Warning</source>
+        <translation>Waarschuwing</translation>
+    </message>
+    <message>
+        <source>No series selected.</source>
+        <translation>Geen reeksen geselecteerd.</translation>
+    </message>
+    <message>
+        <source>Select</source>
+        <translation>Selecteren</translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation>Naam</translation>
+    </message>
+    <message>
+        <source>Location</source>
+        <translation>Locatie</translation>
+    </message>
+    <message>
+        <source>Screen Top</source>
+        <translation>Bovenkant filter</translation>
+    </message>
+    <message>
+        <source>Screen Bottom</source>
+        <translation>Onderkant filter</translation>
+    </message>
+    <message>
+        <source>Count</source>
+        <translation>Aantal</translation>
+    </message>
+    <message>
+        <source>Start</source>
+        <translation>Start</translation>
+    </message>
+    <message>
+        <source>End</source>
+        <translation>Eind</translation>
+    </message>
+    <message>
+        <source>Preview</source>
+        <translation>Voorvertoning</translation>
+    </message>
+    <message>
+        <source>Value</source>
+        <translation>Waarde</translation>
+    </message>
+    <message>
+        <source>Time</source>
+        <translation>Tijd</translation>
+    </message>
+    <message>
         <source>Metadata Options (Multi-select)</source>
         <translation>Metadata-opties (meervoudige selectie)</translation>
     </message>

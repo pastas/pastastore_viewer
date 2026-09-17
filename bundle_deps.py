@@ -29,6 +29,7 @@ DEFAULT_PACKAGES = [
     "pyqtgraph",
     "brodata==0.1.8",
     "hydropandas==0.20.1",
+    "tqdm" # needed because pastas 2.0 temporarily needs it
 ]
 
 

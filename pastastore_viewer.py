@@ -202,6 +202,16 @@ class PastastoreViewer:
         self.knmi_import_dialog = None
         self.license_manager = LicenseManager(self.plugin_dir, self.plugin_version)
 
+    def mark_store_modified(self, modified=True):
+        """Set store_modified flag and set QGIS project dirty when modified."""
+        self.store_modified = modified
+        if modified:
+            try:
+                QgsProject.instance().setDirty(True)
+            except Exception as err:
+                import logging
+                logging.getLogger(__name__).debug("Failed to set project dirty: %s", err)
+
     def _read_plugin_version(self):
         metadata_file = os.path.join(self.plugin_dir, "metadata.txt")
         try:
@@ -530,8 +540,9 @@ class PastastoreViewer:
 
     def on_project_new(self):
         """Called when a new project is created."""
+        self._prompt_save_if_needed(allow_cancel=False)
         self.store = None
-        self.store_modified = False
+        self.mark_store_modified(False)
         if self.dock_widget:
             self.dock_widget.populate_lists(None)
             self.dock_widget.set_filename(None)
@@ -567,8 +578,8 @@ class PastastoreViewer:
 
     def _get_save_prompt_text(self):
         if self.store_modified:
-            return "The pastastore has been modified. Do you want to save it?"
-        return (
+            return self.tr("The pastastore has been modified. Do you want to save it?")
+        return self.tr(
             "The current pastastore is in-memory and has not been saved to a zip file. "
             "Do you want to save it now?"
         )
@@ -583,7 +594,7 @@ class PastastoreViewer:
 
         reply = QMessageBox.question(
             self.iface.mainWindow(),
-            "Save Pastastore",
+            self.tr("Save Pastastore"),
             self._get_save_prompt_text(),
             buttons,
             QMessageBox.StandardButton.Yes,
@@ -716,7 +727,7 @@ class PastastoreViewer:
     def _initialize_in_memory_store(self, notify=False):
         try:
             self.store = pst.PastaStore()
-            self.store_modified = False
+            self.mark_store_modified(False)
 
             self.load_layers_from_store()
             if self.dock_widget:
@@ -779,7 +790,7 @@ class PastastoreViewer:
                 self.dock_widget.set_filename(filename)
                 self.dock_widget.save_state_to_project()
 
-            self.store_modified = False
+            self.mark_store_modified(False)
             self._push_message("Success", f"Saved {filename}", level=0)
         except Exception as e:
             import traceback
@@ -828,7 +839,7 @@ class PastastoreViewer:
                 # the freshly created connector.
                 BaseConnector._added_models = []
                 self.store = pst.PastaStore.from_zip(filename)
-                self.store_modified = False
+                self.mark_store_modified(False)
                 self.load_layers_from_store()
                 if self.dock_widget:
                     self.dock_widget.populate_lists(self.store)
@@ -888,7 +899,7 @@ class PastastoreViewer:
                 f"Merged {filename} (oseries: {counts['oseries']}, "
                 f"stresses: {counts['stresses']}, models: {counts['models']})"
             )
-            self.store_modified = True
+            self.mark_store_modified(True)
             self._push_message("Success", msg, level=0)
         except Exception:
             err_msg = traceback.format_exc()
@@ -1365,7 +1376,7 @@ class PastastoreViewer:
                 if self.plot_dock:
                     self.plot_dock.clear_plot()
 
-                self.store_modified = True
+                self.mark_store_modified(True)
                 self._push_message("Success", f"Deleted {len(names)} model(s)", level=0)
 
             except Exception as e:
@@ -1411,7 +1422,7 @@ class PastastoreViewer:
                 if self.plot_dock:
                     self.plot_dock.clear_plot()
 
-                self.store_modified = True
+                self.mark_store_modified(True)
                 self._push_message("Success", f"Deleted {len(names)} oseries", level=0)
 
             except Exception as e:
@@ -1460,7 +1471,7 @@ class PastastoreViewer:
                 if self.plot_dock:
                     self.plot_dock.clear_plot()
 
-                self.store_modified = True
+                self.mark_store_modified(True)
                 self._push_message("Success", f"Deleted {len(names)} stresses", level=0)
 
             except Exception as e:
@@ -1535,7 +1546,7 @@ class PastastoreViewer:
                         new_model.name = new_name
 
                 self.store.add_model(new_model, overwrite=True)
-                self.store_modified = True
+                self.mark_store_modified(True)
 
                 self._push_message("Success", f"Saved model: {new_name}", level=0)
 
@@ -1596,7 +1607,7 @@ class PastastoreViewer:
             if dlg.exec():
                 new_model, new_name = dlg.get_model_data()
                 self.store.add_model(new_model, overwrite=True)
-                self.store_modified = True
+                self.mark_store_modified(True)
 
                 self._push_message("Success", f"Created model: {new_name}", level=0)
 
@@ -1678,7 +1689,7 @@ class PastastoreViewer:
 
         created = sorted(list(set(self.store.model_names or []) - existing_models))
         if created:
-            self.store_modified = True
+            self.mark_store_modified(True)
 
         if failed:
             self._push_message(
@@ -2385,7 +2396,7 @@ class PastastoreViewer:
                         logging.getLogger(__name__).debug("Failed to delete oseries %s: %s", oseries_name, err)
 
                 self._add_oseries_to_store(modified_series, oseries_name, metadata)
-                self.store_modified = True
+                self.mark_store_modified(True)
 
                 self._push_message(
                     "Success", f"Updated oseries: {oseries_name}", level=0
@@ -2447,7 +2458,7 @@ class PastastoreViewer:
 
                 # Add modified stress series back to store
                 self._add_stress_to_store(modified_series, stress_name, metadata)
-                self.store_modified = True
+                self.mark_store_modified(True)
 
                 self._push_message("Success", f"Updated stress: {stress_name}", level=0)
 
@@ -2574,7 +2585,7 @@ class PastastoreViewer:
                 self.store.add_oseries(series, name=series_name, metadata=metadata)
                 added_count += 1
 
-            self.store_modified = True
+            self.mark_store_modified(True)
 
             # Refresh the oseries list
             if self.dock_widget:
@@ -2613,7 +2624,7 @@ class PastastoreViewer:
                     added_count += 1
 
             if added_count > 0:
-                self.store_modified = True
+                self.mark_store_modified(True)
                 self.load_layers_from_store()
                 if self.dock_widget:
                     self.dock_widget.populate_lists(self.store)

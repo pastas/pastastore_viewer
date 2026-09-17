@@ -376,7 +376,7 @@ class ModelEditorDialog(QDialog):
         self.de_tmin.dateChanged.connect(self.mark_edited)
         self.de_tmax.dateChanged.connect(self.mark_edited)
         self.cbo_freq.currentTextChanged.connect(self.mark_edited)
-        self.table_params.itemChanged.connect(self.mark_edited)
+        self.table_params.itemChanged.connect(self.on_param_item_changed)
 
         self.detail_name.textChanged.connect(self.mark_edited)
         self.detail_type.currentTextChanged.connect(self.mark_edited)
@@ -390,6 +390,21 @@ class ModelEditorDialog(QDialog):
         self.detail_trend_end.dateChanged.connect(self.mark_edited)
 
         self._is_populating = False
+
+    def on_param_item_changed(self, item):
+        if getattr(self, "_is_populating", False):
+            return
+        # When user edits cell text, update UserRole with parsed float or clear it if invalid
+        txt = item.text().strip()
+        try:
+            val_float = float(txt)
+            if not np.isnan(val_float):
+                item.setData(Qt.ItemDataRole.UserRole, val_float)
+            else:
+                item.setData(Qt.ItemDataRole.UserRole, None)
+        except (ValueError, TypeError):
+            item.setData(Qt.ItemDataRole.UserRole, None)
+        self.mark_edited()
 
     def update_parameters_table(self, model):
         self.table_params.blockSignals(True)
@@ -411,12 +426,14 @@ class ModelEditorDialog(QDialog):
                     cols = ["initial", "optimal", "pmin", "pmax", "vary", "stderr"]
                     for j, col in enumerate(cols):
                         val = row.get(col, "")
+                        val_float = None
                         # Format numeric values with 4 decimal places
                         if col != "vary" and val != "":
                             try:
-                                val_float = float(val)
-                                if not np.isnan(val_float):
-                                    val = f"{val_float:.4f}"
+                                v_float = float(val)
+                                if not np.isnan(v_float):
+                                    val_float = v_float
+                                    val = f"{v_float:.4f}"
                                 else:
                                     val = "-"
                             except (ValueError, TypeError):
@@ -425,6 +442,8 @@ class ModelEditorDialog(QDialog):
                             val = str(val)
 
                         item = QTableWidgetItem(val)
+                        if val_float is not None:
+                            item.setData(Qt.ItemDataRole.UserRole, val_float)
 
                         # Editable columns: initial, pmin, pmax, vary
                         # Optimal and stderr are results (read-only mostly, but allow copy)
@@ -948,26 +967,44 @@ class ModelEditorDialog(QDialog):
 
             # Apply Parameters
             # Capture from table
+            def _parse_item_float(item):
+                if not item:
+                    return None
+                val_data = item.data(Qt.ItemDataRole.UserRole)
+                if val_data is not None:
+                    try:
+                        val = float(val_data)
+                        return val if not np.isnan(val) else None
+                    except (ValueError, TypeError):
+                        pass
+                txt = item.text().strip()
+                if txt not in ["-", "", "None", "nan"]:
+                    try:
+                        val = float(txt)
+                        return val if not np.isnan(val) else None
+                    except (ValueError, TypeError):
+                        pass
+                return None
+
             for i in range(self.table_params.rowCount()):
                 pname = self.table_params.verticalHeaderItem(i).text()
                 # Check if this parameter exists in the new model structure
                 # We can try to set it, if it fails, ignore (param might be gone due to structure change)
                 try:
-                    # Get values
-                    initial_item = self.table_params.item(i, 0)
-                    pmin_item = self.table_params.item(i, 2)
-                    pmax_item = self.table_params.item(i, 3)
+                    initial_val = _parse_item_float(self.table_params.item(i, 0))
+                    optimal_val = _parse_item_float(self.table_params.item(i, 1))
+                    pmin_val = _parse_item_float(self.table_params.item(i, 2))
+                    pmax_val = _parse_item_float(self.table_params.item(i, 3))
                     vary_item = self.table_params.item(i, 4)
 
-                    if initial_item:
-                        val = float(initial_item.text())
-                        model.set_parameter(name=pname, initial=val)
-                    if pmin_item:
-                        val = float(pmin_item.text())
-                        model.set_parameter(name=pname, pmin=val)
-                    if pmax_item:
-                        val = float(pmax_item.text())
-                        model.set_parameter(name=pname, pmax=val)
+                    if initial_val is not None:
+                        model.set_parameter(name=pname, initial=initial_val)
+                    if optimal_val is not None:
+                        model.set_parameter(name=pname, optimal=optimal_val)
+                    if pmin_val is not None:
+                        model.set_parameter(name=pname, pmin=pmin_val)
+                    if pmax_val is not None:
+                        model.set_parameter(name=pname, pmax=pmax_val)
                     if vary_item:
                         val = vary_item.text().lower() == "true"
                         model.set_parameter(name=pname, vary=val)
