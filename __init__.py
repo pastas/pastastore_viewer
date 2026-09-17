@@ -99,8 +99,9 @@ def _install_scoped_import_hook():
             for pkg_name in ["pastas", "pastastore", "pyqtgraph", "brodata", "hydropandas", "tqdm"]:
                 try:
                     importlib.import_module(pkg_name)
-                except Exception:
-                    pass
+                except Exception as err:
+                    import logging
+                    logging.getLogger(__name__).debug("Failed to pre-load bundled package %s: %s", pkg_name, err)
         finally:
             if _DEPS_DIR in sys.path:
                 sys.path.remove(_DEPS_DIR)
