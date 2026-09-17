@@ -568,6 +568,9 @@ class PastastoreViewer:
         if not self.store:
             return False
 
+        if not self._store_has_content():
+            return False
+
         has_store_path = bool(self.dock_widget and self.dock_widget.store_path)
         connector = getattr(self.store, "conn", None)
         is_in_memory_store = (
@@ -702,13 +705,21 @@ class PastastoreViewer:
 
         try:
             has_oseries = (
-                hasattr(self.store, "oseries") and len(self.store.oseries.index) > 0
+                hasattr(self.store, "oseries")
+                and self.store.oseries is not None
+                and hasattr(self.store.oseries, "index")
+                and len(self.store.oseries.index) > 0
             )
             has_stresses = (
-                hasattr(self.store, "stresses") and len(self.store.stresses.index) > 0
+                hasattr(self.store, "stresses")
+                and self.store.stresses is not None
+                and hasattr(self.store.stresses, "index")
+                and len(self.store.stresses.index) > 0
             )
             has_models = (
-                hasattr(self.store, "model_names") and len(self.store.model_names) > 0
+                hasattr(self.store, "model_names")
+                and self.store.model_names is not None
+                and len(self.store.model_names) > 0
             )
             return has_oseries or has_stresses or has_models
         except Exception:

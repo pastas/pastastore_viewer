@@ -18,7 +18,10 @@ import sys
 import threading
 from contextlib import contextmanager
 
-from .i18n_helper import tr as _i18n_tr
+try:
+    from .i18n_helper import tr as _i18n_tr
+except (ImportError, ValueError):
+    from i18n_helper import tr as _i18n_tr
 
 
 _PLUGIN_DIR = os.path.dirname(__file__)
@@ -57,9 +60,26 @@ def _tr(message):
         return message
 
 
+def _get_bundled_package_names():
+    """Get top-level package names inside the dependencies directory."""
+    names = set()
+    if os.path.isdir(_DEPS_DIR):
+        for entry in os.listdir(_DEPS_DIR):
+            entry_path = os.path.join(_DEPS_DIR, entry)
+            if (
+                os.path.isdir(entry_path)
+                and not entry.endswith((".dist-info", ".egg-info"))
+                and entry != "__pycache__"
+            ):
+                names.add(entry)
+            elif os.path.isfile(entry_path) and entry.endswith(".py"):
+                names.add(entry[:-3])
+    return names
+
+
 @contextmanager
 def _isolated_import():
-    """Temporarily prepend dependencies folder to sys.path for imports only."""
+    """Temporarily prepend dependencies folder to sys.path for plugin imports only."""
     added_paths = []
     if os.path.isdir(_DEPS_DIR):
         if _DEPS_DIR not in sys.path:
@@ -76,7 +96,7 @@ def _isolated_import():
     try:
         yield
     finally:
-        # Remove added paths in reverse order
+        # Remove added paths from sys.path so dependencies/ folder is not accessible to other plugins
         for path in reversed(added_paths):
             try:
                 sys.path.remove(path)
@@ -84,19 +104,8 @@ def _isolated_import():
                 pass
 
 
-def _add_vendor_paths():
-    """Add bundled dependency paths permanently (legacy fallback)."""
-    if os.path.isdir(_DEPS_DIR):
-        if _DEPS_DIR not in sys.path:
-            sys.path.insert(0, _DEPS_DIR)
-        for entry in os.listdir(_DEPS_DIR):
-            if entry.endswith((".whl", ".zip")):
-                path = os.path.join(_DEPS_DIR, entry)
-                if path not in sys.path:
-                    sys.path.insert(0, path)
-
-# Only install translator (no runtime dependency install)
 _PLUGIN_TRANSLATOR = _install_plugin_translator()
+
 
 def classFactory(iface):
     """Load PastastoreViewer class from file PastastoreViewer.
@@ -104,7 +113,6 @@ def classFactory(iface):
     :param iface: A QGIS interface instance.
     :type iface: QgsInterface
     """
-    # Import with isolated sys.path to reduce exposure to other plugins
     with _isolated_import():
         from .pastastore_viewer import PastastoreViewer
     return PastastoreViewer(iface)
