@@ -1022,16 +1022,77 @@ class PastastoreViewer:
             return metadata["type"]
         return "stress"
 
-    def load_layers_from_store(self):
+    def _find_pastastore_layer(self, layer_name):
+        """Find an existing map layer belonging to pastastore by type or name."""
+        for layer in QgsProject.instance().mapLayers().values():
+            if (
+                layer.customProperty("pastastore_type") == layer_name
+                or layer.name() == layer_name
+            ):
+                return layer
+        return None
+
+    def _clear_layer_if_exists(self, layer_name):
+        """Truncate features of a layer if it exists, without deleting the layer or style."""
+        layer = self._find_pastastore_layer(layer_name)
+        if layer:
+            pr = layer.dataProvider()
+            pr.truncate()
+            layer.updateExtents()
+            layer.triggerRepaint()
+
+    def _apply_default_symbology(self, layer, layer_name):
+        """Apply default single symbol renderer and clear labeling for a layer."""
+        from qgis.core import QgsMarkerSymbol, QgsSingleSymbolRenderer
+        from qgis.PyQt.QtGui import QColor
+
+        # Disable labels if enabled
+        layer.setLabeling(None)
+        layer.setLabelsEnabled(False)
+
+        colors = {
+            "oseries": Qt.GlobalColor.blue,
+            "stresses": Qt.GlobalColor.red,
+            "models": QColor(0, 128, 0),
+        }
+        color = colors.get(layer_name, Qt.GlobalColor.black)
+
+        symbol = QgsMarkerSymbol.createSimple({"name": "circle"})
+        symbol.setColor(color)
+
+        if layer_name == "oseries":
+            symbol.setSize(3.0)
+            sl = symbol.symbolLayer(0)
+            if sl:
+                sl.setFillColor(QColor(0, 0, 0, 0))
+                sl.setStrokeColor(color)
+                sl.setStrokeWidth(0.6)
+        elif layer_name == "models":
+            symbol.setSize(5.0)
+            sl = symbol.symbolLayer(0)
+            if sl:
+                sl.setFillColor(QColor(0, 0, 0, 0))  # Hollow
+                sl.setStrokeColor(color)
+                sl.setStrokeWidth(0.6)
+
+        layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+        layer.triggerRepaint()
+
+    def reset_layer_symbology(self):
+        """Resets symbology for all pastastore vector layers back to plugin defaults."""
+        self.load_layers_from_store(reset_symbology=True)
+        self._push_message(
+            "Symbology Reset",
+            "Pastastore layer symbology has been reset to defaults.",
+            level=0,
+        )
+
+    def load_layers_from_store(self, reset_symbology=False):
         if not self.store:
             return
         root = QgsProject.instance().layerTreeRoot()
         group = root.findGroup("Pastastore")
-        if group:
-            for child in group.children():
-                if isinstance(child, QgsLayerTreeLayer):
-                    QgsProject.instance().removeMapLayer(child.layerId())
-        else:
+        if not group:
             group = root.addGroup("Pastastore")
 
         # Add models first so they are on top (z-order)
@@ -1042,15 +1103,25 @@ class PastastoreViewer:
             ]
             models = self.store.oseries.loc[model_oseries]
             models.index = self.store.model_names
-            self._add_layer(models, "models", group)
+            self._add_layer(models, "models", group, reset_symbology=reset_symbology)
+        else:
+            self._clear_layer_if_exists("models")
 
         if hasattr(self.store, "stresses") and len(self.store.stresses.index) > 0:
-            self._add_layer(self.store.stresses, "stresses", group)
+            self._add_layer(
+                self.store.stresses, "stresses", group, reset_symbology=reset_symbology
+            )
+        else:
+            self._clear_layer_if_exists("stresses")
 
         if len(self.store.oseries.index) > 0:
-            self._add_layer(self.store.oseries, "oseries", group)
+            self._add_layer(
+                self.store.oseries, "oseries", group, reset_symbology=reset_symbology
+            )
+        else:
+            self._clear_layer_if_exists("oseries")
 
-    def _add_layer(self, data, layer_name, group):
+    def _add_layer(self, data, layer_name, group, reset_symbology=False):
         try:
             if not hasattr(data, "columns"):
                 if hasattr(data, "index"):
@@ -1083,21 +1154,15 @@ class PastastoreViewer:
                     return
 
             crs = QgsCoordinateReferenceSystem(f"EPSG:{crs_epsg}")
-            layer = QgsVectorLayer(f"Point?crs={crs.authid()}", layer_name, "memory")
-            layer.setCustomProperty("pastastore_type", layer_name)
-            # Mark as plugin-managed to suppress scratch layer warning
-            layer.setCustomProperty("skipMemoryLayersCheck", 1)
-            pr = layer.dataProvider()
-            fields = [QgsField("name", QVariant.String)]
             valid_cols = [
                 c
                 for c in data_df.columns
                 if c.lower() not in [x_col.lower(), y_col.lower(), "name"]
             ]
+
+            fields = [QgsField("name", QVariant.String)]
             for col in valid_cols:
                 fields.append(QgsField(str(col), QVariant.String))
-            pr.addAttributes(fields)
-            layer.updateFields()
 
             feats = []
             for idx, row in data_df.iterrows():
@@ -1112,40 +1177,47 @@ class PastastoreViewer:
                     feats.append(feat)
                 except Exception as err:
                     import logging
+
                     logging.getLogger(__name__).debug("Failed to process map feature row: %s", err)
                     continue
-            pr.addFeatures(feats)
-            layer.updateExtents()
 
-            symbol = layer.renderer().symbol()
-            from qgis.PyQt.QtGui import QColor
+            existing_layer = self._find_pastastore_layer(layer_name)
 
-            colors = {
-                "oseries": Qt.GlobalColor.blue,
-                "stresses": Qt.GlobalColor.red,
-                "models": QColor(0, 128, 0),
-            }
-            color = colors.get(layer_name, Qt.GlobalColor.black)
-            symbol.setColor(color)
+            if existing_layer:
+                layer = existing_layer
+                layer.setCrs(crs)
+                pr = layer.dataProvider()
+                pr.truncate()
 
-            if layer_name == "oseries":
-                symbol.setSize(3.0)
-                sl = symbol.symbolLayer(0)
-                if sl:
-                    sl.setFillColor(QColor(0, 0, 0, 0))
-                    sl.setStrokeColor(color)
-                    sl.setStrokeWidth(0.6)
+                curr_field_names = [f.name() for f in layer.fields()]
+                new_field_names = [f.name() for f in fields]
+                if curr_field_names != new_field_names:
+                    if curr_field_names:
+                        pr.deleteAttributes(list(range(len(curr_field_names))))
+                    pr.addAttributes(fields)
+                    layer.updateFields()
 
-            if layer_name == "models":
-                symbol.setSize(5.0)
-                sl = symbol.symbolLayer(0)
-                if sl:
-                    sl.setFillColor(QColor(0, 0, 0, 0))  # Hollow
-                    sl.setStrokeColor(color)
-                    sl.setStrokeWidth(0.6)
+                pr.addFeatures(feats)
+                layer.updateExtents()
+                layer.triggerRepaint()
+                is_new_layer = False
+            else:
+                layer = QgsVectorLayer(f"Point?crs={crs.authid()}", layer_name, "memory")
+                layer.setCustomProperty("pastastore_type", layer_name)
+                layer.setCustomProperty("skipMemoryLayersCheck", 1)
+                pr = layer.dataProvider()
+                pr.addAttributes(fields)
+                layer.updateFields()
+                pr.addFeatures(feats)
+                layer.updateExtents()
 
-            QgsProject.instance().addMapLayer(layer, False)
-            group.addLayer(layer)
+                QgsProject.instance().addMapLayer(layer, False)
+                group.addLayer(layer)
+                is_new_layer = True
+
+            if is_new_layer or reset_symbology:
+                self._apply_default_symbology(layer, layer_name)
+
         except Exception as e:
             import traceback
 

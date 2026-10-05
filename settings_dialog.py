@@ -41,6 +41,10 @@ class PastastoreSettingsDialog(QDialog):
 
         if self.plugin:
             layout.addWidget(QLabel(""))
+            reset_sym_btn = QPushButton("Reset Symbology to Defaults")
+            reset_sym_btn.clicked.connect(self.reset_symbology)
+            layout.addWidget(reset_sym_btn)
+
             license_btn = QPushButton("License Manager")
             license_btn.clicked.connect(self.open_license_manager)
             layout.addWidget(license_btn)
@@ -62,9 +66,24 @@ class PastastoreSettingsDialog(QDialog):
             "zoom": self.cb_zoom.isChecked(),
         }
 
+    def reset_symbology(self):
+        if self.plugin and hasattr(self.plugin, "reset_layer_symbology"):
+            from qgis.PyQt.QtWidgets import QMessageBox
+
+            reply = QMessageBox.question(
+                self,
+                "Reset Symbology",
+                "Are you sure you want to reset pastastore layer symbology to default styles?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.plugin.reset_layer_symbology()
+
     def open_license_manager(self):
         if self.plugin:
             from .pastastore_viewer import LicenseManagerDialog
 
             dlg = LicenseManagerDialog(self.plugin, parent=self)
             dlg.exec()
+
