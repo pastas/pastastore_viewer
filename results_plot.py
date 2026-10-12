@@ -391,14 +391,7 @@ class ResultsPlotDialog(QDialog):
                     add_0=add_zero,
                     istress=istress,
                 )
-                if (
-                    hasattr(sm, "stress")
-                    and sm.stress is not None
-                    and istress < len(sm.stress)
-                ):
-                    stress_name = sm.stress[istress].name
-                else:
-                    stress_name = None
+                stress_name = _get_stress_name(sm, istress)
                 response_x = resp.index.values if resp is not None else None
                 response_data = resp.values if resp is not None else None
 
@@ -496,3 +489,22 @@ def get_stats(series):
     if series is None or series.empty:
         return 0.0, 0.001
     return float(series.min()), float(series.max())
+
+
+def _get_stress_name(sm, istress=0):
+    """Safely obtain the stress name for a stressmodel and stress index across Pastas versions."""
+    stresses = getattr(sm, "stresses", None)
+    if stresses is not None:
+        if isinstance(stresses, (list, tuple)) and istress < len(stresses):
+            return getattr(stresses[istress], "name", None)
+    try:
+        stress = getattr(sm, "stress", None)
+    except Exception:
+        stress = None
+    if stress is not None:
+        if isinstance(stress, (list, tuple)) and istress < len(stress):
+            return getattr(stress[istress], "name", None)
+        elif istress == 0 and hasattr(stress, "name"):
+            return stress.name
+    return None
+

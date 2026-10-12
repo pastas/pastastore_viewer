@@ -11,6 +11,7 @@ from qgis.PyQt.QtWidgets import (
     QDateEdit,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -22,6 +23,8 @@ from qgis.PyQt.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -73,8 +76,148 @@ def _apply_scipy_callback_patch():
         logging.getLogger(__name__).debug("Failed to patch least_squares callback: %s", err)
 
 
+def _get_timeseries_presets():
+    """Return dictionary of predefined timeseries settings across Pastas versions."""
+    import pastas as _ps
+    if hasattr(_ps, "timeseries") and hasattr(_ps.timeseries, "settings") and isinstance(_ps.timeseries.settings, dict):
+        return _ps.timeseries.settings
+    if hasattr(_ps, "timeseries") and hasattr(_ps.timeseries, "TimeSeries") and hasattr(_ps.timeseries.TimeSeries, "_predefined_settings"):
+        return _ps.timeseries.TimeSeries._predefined_settings
+    if hasattr(_ps, "rcParams"):
+        try:
+            return _ps.rcParams["timeseries"]
+        except Exception:
+            pass
+    return {}
+
+
+class StressSettingsDialog(QDialog):
+    """Popup dialog for selecting TimeSeries settings (preset keyword or custom)."""
+
+    KEYWORDS = ["prec", "evap", "well", "waterlevel", "level", "flux", "quantity", "custom"]
+    SAMPLE_OPTIONS = ["bfill", "ffill", "mean", "sum", "interpolate", "divide", "nearest"]
+    FILL_OPTIONS = ["mean", "interpolate", "0.0", "None"]
+    FIELDS = ["sample_up", "sample_down", "fill_nan", "fill_before", "fill_after"]
+
+    def __init__(self, keyword="prec", custom_dict=None, stress_name="", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(_tr("Settings") + (f" — {stress_name}" if stress_name else ""))
+        self.setMinimumWidth(360)
+        self._custom_dict = dict(custom_dict) if custom_dict else {}
+        self._updating = False
+
+        layout = QVBoxLayout(self)
+
+        # ---- Keyword preset row ----
+        form_top = QFormLayout()
+        form_top.setContentsMargins(0, 0, 0, 0)
+        self.cbo_keyword = QComboBox()
+        self.cbo_keyword.addItems(self.KEYWORDS)
+        self.cbo_keyword.setCurrentText(keyword if keyword in self.KEYWORDS else "custom")
+        self.cbo_keyword.currentTextChanged.connect(self._on_keyword_changed)
+        form_top.addRow(_tr("Settings:"), self.cbo_keyword)
+        layout.addLayout(form_top)
+
+        # ---- Individual settings ----
+        self.group_settings = QGroupBox(_tr("Individual Settings"))
+        form = QFormLayout(self.group_settings)
+        form.setVerticalSpacing(4)
+        form.setContentsMargins(6, 6, 6, 6)
+
+        self._field_widgets = {}
+        for field in self.FIELDS:
+            options = self.SAMPLE_OPTIONS if "sample" in field else self.FILL_OPTIONS
+            cbo = QComboBox()
+            cbo.addItems(options)
+            cbo.setEditable(True)
+            cbo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            cbo.currentTextChanged.connect(
+                lambda v, f=field: self._on_field_changed(f, v)
+            )
+            form.addRow(_tr(f"{field}:"), cbo)
+            self._field_widgets[field] = cbo
+
+        layout.addWidget(self.group_settings)
+
+        # ---- Buttons ----
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+        # Populate fields from initial keyword
+        if keyword == "custom" and not self._custom_dict:
+            self._custom_dict = dict(self._get_preset("prec"))
+        self._populate_fields(self.cbo_keyword.currentText())
+
+    # ------------------------------------------------------------------
+    def _get_preset(self, keyword):
+        """Return the pastas preset dict for *keyword*, or {} if not found."""
+        presets = _get_timeseries_presets()
+        return dict(presets.get(keyword, {}))
+
+    def _populate_fields(self, keyword):
+        """Fill individual field widgets from the preset or stored custom dict."""
+        self._updating = True
+        try:
+            d = self._custom_dict if keyword == "custom" else self._get_preset(keyword)
+            for field, widget in self._field_widgets.items():
+                val = d.get(field, "")
+                widget.setCurrentText(str(val) if val is not None else "None")
+        finally:
+            self._updating = False
+
+    def _on_keyword_changed(self, keyword):
+        if self._updating:
+            return
+        if keyword == "custom":
+            if not self._custom_dict:
+                self._custom_dict = self._read_fields()
+            self._populate_fields("custom")
+        else:
+            self._populate_fields(keyword)
+
+    def _on_field_changed(self, field, value):
+        if self._updating:
+            return
+        # Any manual edit → switch to 'custom' and persist the change
+        self._custom_dict = self._read_fields()
+        self._custom_dict[field] = self._parse_value(value)
+        self._updating = True
+        try:
+            self.cbo_keyword.setCurrentText("custom")
+        finally:
+            self._updating = False
+
+    def _read_fields(self):
+        """Return a dict of the current values from all field widgets."""
+        return {f: self._parse_value(w.currentText()) for f, w in self._field_widgets.items()}
+
+    @staticmethod
+    def _parse_value(text):
+        if text in ("None", ""):
+            return None
+        try:
+            return float(text)
+        except ValueError:
+            return text
+
+    # ---- Public API ----
+    def get_keyword(self):
+        return self.cbo_keyword.currentText()
+
+    def get_custom_dict(self):
+        """Return current individual-field values as a dict (used when keyword=='custom')."""
+        d = dict(self._custom_dict)
+        d.update(self._read_fields())
+        return d
+
+
 class ModelEditorDialog(QDialog):
     """Dialog to edit a Pastas model with advanced stressmodel configuration."""
+
 
     def __init__(
         self,
@@ -94,10 +237,14 @@ class ModelEditorDialog(QDialog):
         self.new_model = None
         self._edited = False
 
-        # Helper to get available series
+        # Helper to get available series, sorted by distance from oseries
         self.available_stresses = []
         if hasattr(store, "stresses"):
-            self.available_stresses = sorted(store.stresses.index.tolist())
+            all_stresses = store.stresses.index.tolist()
+            oseries_name = model.oseries.name if hasattr(model.oseries, "name") else None
+            self.available_stresses = self._sort_stresses_by_distance(
+                store, all_stresses, oseries_name
+            )
 
         # Data structure to hold current settings
         self.stressmodel_settings = self._parse_current_model(model)
@@ -282,16 +429,38 @@ class ModelEditorDialog(QDialog):
         self.detail_up = QCheckBox("Up (Positive Response)")
         self.detail_up.toggled.connect(self.save_detail_up)
 
-        # Inputs (Dynamic)
+        # Inputs (Dynamic) — each input has a stress selector + Settings button
+        # --- Input 1 ---
         self.detail_input1_lbl = QLabel(_tr("Input 1:"))
+
+        self.detail_input1_row = QWidget()
+        _hbox1 = QHBoxLayout(self.detail_input1_row)
+        _hbox1.setContentsMargins(0, 0, 0, 0)
         self.detail_input1 = QComboBox()
         self.detail_input1.addItems(self.available_stresses)
         self.detail_input1.currentTextChanged.connect(self.save_detail_input1)
+        self.btn_input1_settings = QPushButton(_tr("Settings"))
+        self.btn_input1_settings.setFixedWidth(80)
+        self.btn_input1_settings.setToolTip(_tr("Click to edit timeseries settings"))
+        self.btn_input1_settings.clicked.connect(self._open_input1_settings)
+        _hbox1.addWidget(self.detail_input1, 1)
+        _hbox1.addWidget(self.btn_input1_settings, 0)
 
+        # --- Input 2 ---
         self.detail_input2_lbl = QLabel(_tr("Input 2 (Evap):"))
+
+        self.detail_input2_row = QWidget()
+        _hbox2 = QHBoxLayout(self.detail_input2_row)
+        _hbox2.setContentsMargins(0, 0, 0, 0)
         self.detail_input2 = QComboBox()
         self.detail_input2.addItems(self.available_stresses)
         self.detail_input2.currentTextChanged.connect(self.save_detail_input2)
+        self.btn_input2_settings = QPushButton(_tr("Settings"))
+        self.btn_input2_settings.setFixedWidth(80)
+        self.btn_input2_settings.setToolTip(_tr("Click to edit timeseries settings"))
+        self.btn_input2_settings.clicked.connect(self._open_input2_settings)
+        _hbox2.addWidget(self.detail_input2, 1)
+        _hbox2.addWidget(self.btn_input2_settings, 0)
 
         # StepModel datetime
         self.detail_step_date_lbl = QLabel(_tr("Step Start:"))
@@ -318,11 +487,13 @@ class ModelEditorDialog(QDialog):
         self.form_detail.addRow(_tr("Response Function:"), self.detail_rfunc)
         self.form_detail.addRow(_tr("Recharge Type:"), self.detail_recharge)
         self.form_detail.addRow("", self.detail_up)
-        self.form_detail.addRow(self.detail_input1_lbl, self.detail_input1)
-        self.form_detail.addRow(self.detail_input2_lbl, self.detail_input2)
+        self.form_detail.addRow(self.detail_input1_lbl, self.detail_input1_row)
+        self.form_detail.addRow(self.detail_input2_lbl, self.detail_input2_row)
         self.form_detail.addRow(self.detail_step_date_lbl, self.detail_step_date)
         self.form_detail.addRow(self.detail_trend_start_lbl, self.detail_trend_start)
         self.form_detail.addRow(self.detail_trend_end_lbl, self.detail_trend_end)
+
+
 
         self.hbox_stresses.addWidget(self.group_detail, 2)
 
@@ -505,6 +676,7 @@ class ModelEditorDialog(QDialog):
         """Parse existing model structure into settings list."""
         settings = []
         for name, sm in model.stressmodels.items():
+            raw_settings = sm.get_settings()  # {stress_name: settings_dict}
             entry = {
                 "name": name,
                 "inputs": [],
@@ -512,7 +684,9 @@ class ModelEditorDialog(QDialog):
                 "rfunc": "Gamma",
                 "type": "StressModel",
                 "recharge": "Linear",
-                "settings": sm.get_settings(),  # Current stress settings
+                "settings": raw_settings,  # Current stress settings
+                "settings_kws": [],   # per-input keyword ('prec'/'evap'/…/'custom')
+                "settings_custom": [],  # per-input custom dict (used when kw == 'custom')
             }
 
             # Determine Type
@@ -561,8 +735,17 @@ class ModelEditorDialog(QDialog):
                 if hasattr(sm, "end") and sm.end is not None:
                     entry["trend_end"] = str(pd.Timestamp(sm.end).date())
 
+            # Detect per-input settings keywords
+            for inp_name in entry["inputs"]:
+                s_dict = raw_settings.get(inp_name, {})
+                detect_fn = getattr(self, "_detect_settings_keyword", ModelEditorDialog._detect_settings_keyword)
+                kw = detect_fn(s_dict)
+                entry["settings_kws"].append(kw)
+                entry["settings_custom"].append(dict(s_dict))
+
             settings.append(entry)
         return settings
+
 
     def populate_list(self):
         self.list_stresses.clear()
@@ -602,8 +785,13 @@ class ModelEditorDialog(QDialog):
 
             if len(s["inputs"]) > 0:
                 self.detail_input1.setCurrentText(s["inputs"][0])
+                kw1 = s.get("settings_kws", ["prec"])[0] if s.get("settings_kws") else "prec"
+                self.btn_input1_settings.setToolTip(_tr("Settings: {}").format(kw1))
+
             if len(s["inputs"]) > 1:
                 self.detail_input2.setCurrentText(s["inputs"][1])
+                kw2 = s.get("settings_kws", ["prec", "evap"])[1] if len(s.get("settings_kws", [])) > 1 else "evap"
+                self.btn_input2_settings.setToolTip(_tr("Settings: {}").format(kw2))
 
         # StepModel dates
         if s["type"] == "StepModel":
@@ -659,8 +847,8 @@ class ModelEditorDialog(QDialog):
         self.detail_rfunc.setVisible(True)
         self.detail_rfunc.setEnabled(True)
         self.detail_up.setVisible(True)
-        self.detail_input1.setVisible(True)
-        self.detail_input2.setVisible(False)
+        self.detail_input1_row.setVisible(True)
+        self.detail_input2_row.setVisible(False)
         self.detail_input1_lbl.setVisible(True)
         self.detail_input2_lbl.setVisible(False)
         self.form_detail.labelForField(self.detail_rfunc).setVisible(True)
@@ -678,7 +866,7 @@ class ModelEditorDialog(QDialog):
         elif type_name == "RechargeModel":
             self.detail_input1_lbl.setText("Precipitation:")
             self.detail_input2_lbl.setText("Evaporation:")
-            self.detail_input2.setVisible(True)
+            self.detail_input2_row.setVisible(True)
             self.detail_input2_lbl.setVisible(True)
             self.detail_up.setVisible(False)  # Rfunc controls parameters mostly
             self.detail_recharge.setVisible(True)
@@ -686,7 +874,7 @@ class ModelEditorDialog(QDialog):
         elif type_name == "TarsoModel":
             self.detail_input1_lbl.setText("Precipitation:")
             self.detail_input2_lbl.setText("Evaporation:")
-            self.detail_input2.setVisible(True)
+            self.detail_input2_row.setVisible(True)
             self.detail_input2_lbl.setVisible(True)
             self.detail_up.setVisible(False)
             self.detail_recharge.setVisible(False)
@@ -697,7 +885,7 @@ class ModelEditorDialog(QDialog):
             self.detail_rfunc.blockSignals(False)
             self.detail_rfunc.setEnabled(False)
         elif type_name == "StepModel":
-            self.detail_input1.setVisible(False)
+            self.detail_input1_row.setVisible(False)
             self.detail_input1_lbl.setVisible(False)
             self.detail_step_date.setVisible(True)
             self.detail_step_date_lbl.setVisible(True)
@@ -705,13 +893,14 @@ class ModelEditorDialog(QDialog):
         elif type_name == "LinearTrend":
             self.detail_rfunc.setVisible(False)
             self.detail_up.setVisible(False)
-            self.detail_input1.setVisible(False)
+            self.detail_input1_row.setVisible(False)
             self.detail_input1_lbl.setVisible(False)
             self.form_detail.labelForField(self.detail_rfunc).setVisible(False)
             self.detail_trend_start.setVisible(True)
             self.detail_trend_start_lbl.setVisible(True)
             self.detail_trend_end.setVisible(True)
             self.detail_trend_end_lbl.setVisible(True)
+
 
     def get_current_setting(self):
         row = self.list_stresses.currentRow()
@@ -781,6 +970,44 @@ class ModelEditorDialog(QDialog):
         if s:
             s["trend_end"] = date.toString("yyyy-MM-dd")
 
+    def _open_input1_settings(self):
+        self._open_input_settings(0)
+
+    def _open_input2_settings(self):
+        self._open_input_settings(1)
+
+    def _open_input_settings(self, idx):
+        s = self.get_current_setting()
+        if not s:
+            return
+        inputs = s.get("inputs", [])
+        stress_name = inputs[idx] if idx < len(inputs) else ""
+
+        kws = s.setdefault("settings_kws", [])
+        while len(kws) <= idx:
+            kws.append("prec" if idx == 0 else "evap")
+        current_kw = kws[idx]
+
+        customs = s.setdefault("settings_custom", [])
+        while len(customs) <= idx:
+            customs.append({})
+        current_custom = customs[idx]
+
+        dlg = StressSettingsDialog(
+            keyword=current_kw,
+            custom_dict=current_custom,
+            stress_name=stress_name,
+            parent=self,
+        )
+        if dlg.exec():
+            new_kw = dlg.get_keyword()
+            new_custom = dlg.get_custom_dict()
+            kws[idx] = new_kw
+            customs[idx] = new_custom
+            btn = self.btn_input1_settings if idx == 0 else self.btn_input2_settings
+            btn.setToolTip(_tr("Settings: {}").format(new_kw))
+            self.mark_edited()
+
     def add_stressmodel(self):
         # Default new model
         name = f"stress_{len(self.stressmodel_settings) + 1}"
@@ -801,11 +1028,84 @@ class ModelEditorDialog(QDialog):
             "step_date": default_start,
             "trend_start": default_start,
             "trend_end": default_end,
+            "settings_kws": ["prec", "evap"],
+            "settings_custom": [{}, {}],
         }
         self.stressmodel_settings.append(entry)
         self.list_stresses.addItem(name)
         self.list_stresses.setCurrentRow(len(self.stressmodel_settings) - 1)
         self.mark_edited()
+
+    # ------------------------------------------------------------------ helpers
+
+    @staticmethod
+    def _sort_stresses_by_distance(store, stresses, oseries_name):
+        """Return *stresses* sorted by distance to *oseries_name*.
+
+        Falls back to alphabetical order when coordinates are missing or an
+        error occurs.
+        """
+        if not oseries_name:
+            return sorted(stresses)
+        try:
+            dist = store.get_distances(oseries=oseries_name, stresses=stresses)
+            # get_distances returns a DataFrame (index=oseries, cols=stresses) or
+            # a Series (index=stresses) when a single oseries is passed.
+            if hasattr(dist, "squeeze"):
+                dist = dist.squeeze()
+            dist = dist.dropna()
+            sorted_names = dist.sort_values().index.tolist()
+            # Append any stresses with missing/NaN distances alphabetically at the end
+            missing = sorted(s for s in stresses if s not in sorted_names)
+            return sorted_names + missing
+        except Exception:
+            return sorted(stresses)
+
+    @staticmethod
+    def _detect_settings_keyword(settings_dict):
+        """Return the pastas preset keyword that matches *settings_dict*, or 'custom'."""
+        presets = _get_timeseries_presets()
+        if not presets:
+            return "custom"
+
+        def _val_eq(v1, v2):
+            if v1 == v2:
+                return True
+            try:
+                return float(v1) == float(v2)
+            except (ValueError, TypeError):
+                return str(v1) == str(v2)
+
+        for kw, preset in presets.items():
+            if kw == "oseries":
+                continue
+            match = all(
+                _val_eq(settings_dict.get(k), v)
+                for k, v in preset.items()
+            )
+            if match:
+                return kw
+        return "custom"
+
+    @staticmethod
+    def _resolve_settings_for_input(s, idx, fallback_stress_name):
+        """Return the settings value to pass to a StressModel constructor.
+
+        Returns either a keyword string (e.g. 'prec') or a custom dict.
+        Falls back to the legacy ``s['settings']`` lookup when the new
+        per-input metadata is absent.
+        """
+        kws = s.get("settings_kws", [])
+        if idx < len(kws):
+            kw = kws[idx]
+            if kw and kw != "custom":
+                return kw
+            # custom: return the stored dict (may be empty → None)
+            customs = s.get("settings_custom", [])
+            custom_dict = customs[idx] if idx < len(customs) else {}
+            return custom_dict if custom_dict else None
+        # Legacy fallback: use old raw settings dict keyed by stress name
+        return s.get("settings", {}).get(fallback_stress_name)
 
     def remove_stressmodel(self):
         row = self.list_stresses.currentRow()
@@ -855,7 +1155,6 @@ class ModelEditorDialog(QDialog):
                     sm_type = s["type"]
                     rfunc_name = s["rfunc"]
                     inputs = s.get("inputs", [])
-                    settings_dict = s.get("settings", {})
 
                     # Rfunc class
                     rfunc = None
@@ -866,8 +1165,7 @@ class ModelEditorDialog(QDialog):
                         if not inputs:
                             continue
                         ts = self.store.get_stresses(inputs[0])
-                        # Pass settings for the specific time series component
-                        sm_settings = settings_dict.get(inputs[0])
+                        sm_settings = self._resolve_settings_for_input(s, 0, inputs[0])
                         sm = ps.StressModel(
                             ts,
                             rfunc=rfunc,
@@ -889,10 +1187,9 @@ class ModelEditorDialog(QDialog):
                         elif s.get("recharge") == "Berendrecht":
                             recharge = ps.rch.Berendrecht()
 
-                        # Pass list of settings: [precip, evap]
                         sm_settings = [
-                            settings_dict.get(inputs[0]),
-                            settings_dict.get(inputs[1]),
+                            self._resolve_settings_for_input(s, 0, inputs[0]),
+                            self._resolve_settings_for_input(s, 1, inputs[1]),
                         ]
                         sm = ps.RechargeModel(
                             prec,
@@ -910,10 +1207,9 @@ class ModelEditorDialog(QDialog):
                         prec = self.store.get_stresses(inputs[0])
                         evap = self.store.get_stresses(inputs[1])
 
-                        # Pass list of settings: [precip, evap]
                         sm_settings = [
-                            settings_dict.get(inputs[0]),
-                            settings_dict.get(inputs[1]),
+                            self._resolve_settings_for_input(s, 0, inputs[0]),
+                            self._resolve_settings_for_input(s, 1, inputs[1]),
                         ]
 
                         oseries_data = None
@@ -932,6 +1228,7 @@ class ModelEditorDialog(QDialog):
                             settings=sm_settings,
                         )
                         model.add_stressmodel(sm)
+
 
                     elif sm_type == "StepModel":
                         tstart = s.get("step_date")
