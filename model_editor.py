@@ -201,12 +201,16 @@ class ModelEditorDialog(QDialog):
                 QMessageBox.warning(self, "Unsupported Transform", msg)
         self.cbo_transform.setCurrentText(current_text)
 
+        self.chk_constant = QCheckBox(_tr("Include Constant"))
+        self.chk_constant.setChecked(model.constant is not None)
+
         self.form_general.addRow(_tr("Model Name:"), self.le_name)
         self.form_general.addRow(_tr("Tmin:"), self.de_tmin)
         self.form_general.addRow(_tr("Tmax:"), self.de_tmax)
         self.form_general.addRow(_tr("Frequency:"), self.cbo_freq)
         self.form_general.addRow(_tr("Noise Model:"), self.cbo_noise)
         self.form_general.addRow(_tr("Transform:"), self.cbo_transform)
+        self.form_general.addRow(_tr("Constant:"), self.chk_constant)
         self.group_general.setLayout(self.form_general)
         self.vbox_general.addWidget(self.group_general)
         self.vbox_general.addStretch()
@@ -376,6 +380,7 @@ class ModelEditorDialog(QDialog):
         self.de_tmin.dateChanged.connect(self.mark_edited)
         self.de_tmax.dateChanged.connect(self.mark_edited)
         self.cbo_freq.currentTextChanged.connect(self.mark_edited)
+        self.chk_constant.toggled.connect(self.mark_edited)
         self.table_params.itemChanged.connect(self.on_param_item_changed)
 
         self.detail_name.textChanged.connect(self.mark_edited)
@@ -1028,6 +1033,18 @@ class ModelEditorDialog(QDialog):
             else:
                 if model.transform is not None:
                     model.del_transform()
+
+            # Constant
+            if self.chk_constant.isChecked():
+                if model.constant is None:
+                    model.add_constant(
+                        ps.Constant(
+                            initial=model.oseries.series.mean(), name="constant"
+                        )
+                    )
+            else:
+                if model.constant is not None:
+                    model.del_constant()
 
             if solve:
                 _apply_scipy_callback_patch()
