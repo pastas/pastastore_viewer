@@ -95,10 +95,23 @@ Workflow file:
 
 - `QGIS_PLUGIN_TOKEN`: plugin upload token created on [plugins.qgis.org](https://plugins.qgis.org)
 
+### Releasing a new version
+
+1. Update `version=` and add an entry under `changelog=` in [metadata.txt](metadata.txt) (the QGIS plugin repository rejects duplicate version numbers).
+2. *(Optional)* Run a test build first via **Actions > Publish QGIS Plugin > Run workflow** (leaving **Upload built plugin zip to plugins.qgis.org** unchecked) and test the downloaded `pastastore_viewer` zip in QGIS.
+3. Commit and push the updated `metadata.txt` (and any other changes) to `main`.
+4. On GitHub, go to **Releases > Draft a new release**:
+   - Create a new tag matching `version` in `metadata.txt` (e.g. `0.1.2`), targeting `main`.
+   - Enter a release title and notes, then click **Publish release**.
+5. Publishing the release automatically runs the `Publish QGIS Plugin` workflow, which bundles dependencies via `bundle_deps.py`, builds `pastastore_viewer.zip`, uploads it as a workflow artifact, and publishes it to `plugins.qgis.org`.
+6. Check the **Actions** tab to confirm the upload succeeded.
+
+> **Note:** Draft releases do not trigger publishing until you click **Publish release**. Pre-releases *do* trigger the `published` event and will upload to `plugins.qgis.org`, so use a manual workflow run with **Upload built plugin zip to plugins.qgis.org** unchecked for test builds.
+
 ### How publishing is triggered
 
 - **Manual (test build or publish)**: run the workflow from **Actions > Publish QGIS Plugin > Run workflow**.
-  - Leave **Upload built plugin zip to plugins.qgis.org** unchecked (default) to build `pastastore_viewer.zip` as a downloadable workflow artifact (`pastastore_viewer-plugin-zip`) without publishing. Extract `pastastore_viewer.zip` from the downloaded artifact and install it in QGIS via **Plugins > Manage and Install Plugins > Install from ZIP**.
+  - Leave **Upload built plugin zip to plugins.qgis.org** unchecked (default) to build a downloadable `pastastore_viewer.zip` workflow artifact (`pastastore_viewer`) without publishing. Install it directly in QGIS via **Plugins > Manage and Install Plugins > Install from ZIP** (or, if macOS Safari auto-extracts it into a `pastastore_viewer/` folder, copy that folder into your QGIS profile's `python/plugins/` directory).
   - Check **Upload built plugin zip to plugins.qgis.org** to also publish the built zip to the QGIS plugin repository.
 - **Automatic**: when a GitHub release is published (builds the artifact and publishes to the QGIS plugin repository).
 

@@ -14,7 +14,7 @@ icon=icon.svg
 category=Plugins
 experimental=False
 changelog=
-    0.1.2: Keep qgis layer symbology
+    0.1.2: Keep qgis layer symbology, fix colorama-dependency-bug
     0.1.1: Many small improvements and bugfixes
     0.1: Initial basic version.
 
