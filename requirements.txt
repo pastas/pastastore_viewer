@@ -4,3 +4,4 @@ numpy
 pyqtgraph
 brodata
 hydropandas
+colorama
