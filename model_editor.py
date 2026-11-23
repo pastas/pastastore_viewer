@@ -281,36 +281,104 @@ class ModelEditorDialog(QDialog):
 
         self.le_name = QLineEdit(model.name)
 
-        # Date Selectors for Tmin/Tmax
+        # Date Selectors for Tmin/Tmax with helper buttons
         self.de_tmin = QDateEdit()
         self.de_tmin.setCalendarPopup(True)
+        self.de_tmin.setDisplayFormat("yyyy-MM-dd")
+        self.btn_tmin_obs = QPushButton(_tr("First Observation"))
+        self.btn_tmin_obs.setToolTip(
+            _tr("Set tmin to the time of the first observation")
+        )
+        self.btn_tmin_obs.clicked.connect(self.set_tmin_to_first_observation)
+        self.btn_tmin_stresses = QPushButton(_tr("All Stresses"))
+        self.btn_tmin_stresses.setToolTip(
+            _tr("Set tmin to the first moment that all stresses are available")
+        )
+        self.btn_tmin_stresses.clicked.connect(self.set_tmin_to_first_all_stresses)
+
+        self.row_tmin = QWidget()
+        hbox_tmin = QHBoxLayout(self.row_tmin)
+        hbox_tmin.setContentsMargins(0, 0, 0, 0)
+        hbox_tmin.addWidget(self.de_tmin)
+        hbox_tmin.addWidget(self.btn_tmin_obs)
+        hbox_tmin.addWidget(self.btn_tmin_stresses)
+        hbox_tmin.addStretch()
+
         self.de_tmax = QDateEdit()
         self.de_tmax.setCalendarPopup(True)
+        self.de_tmax.setDisplayFormat("yyyy-MM-dd")
+        self.btn_tmax_obs = QPushButton(_tr("Last Observation"))
+        self.btn_tmax_obs.setToolTip(
+            _tr("Set tmax to the time of the last observation")
+        )
+        self.btn_tmax_obs.clicked.connect(self.set_tmax_to_last_observation)
+        self.btn_tmax_stresses = QPushButton(_tr("All Stresses"))
+        self.btn_tmax_stresses.setToolTip(
+            _tr("Set tmax to the last moment that all stresses are available")
+        )
+        self.btn_tmax_stresses.clicked.connect(self.set_tmax_to_last_all_stresses)
 
-        # Set dates from model
+        self.row_tmax = QWidget()
+        hbox_tmax = QHBoxLayout(self.row_tmax)
+        hbox_tmax.setContentsMargins(0, 0, 0, 0)
+        hbox_tmax.addWidget(self.de_tmax)
+        hbox_tmax.addWidget(self.btn_tmax_obs)
+        hbox_tmax.addWidget(self.btn_tmax_stresses)
+        hbox_tmax.addStretch()
+
+        # Set dates from model and find data bounds for calendar range
         tmin = model.settings.get("tmin")
         tmax = model.settings.get("tmax")
-        # Find absolute data bounds for calendar range (use oseries directly, not filtered observations)
-        oseries = model.oseries.series_original
-        if not oseries.empty:
-            abs_min = QDate.fromString(str(oseries.index.min().date()), "yyyy-MM-dd")
-            abs_max = QDate.fromString(str(oseries.index.max().date()), "yyyy-MM-dd")
+
+        min_dates = []
+        max_dates = []
+
+        first_obs, last_obs = self._get_observation_range()
+        if first_obs is not None:
+            min_dates.append(first_obs)
+            max_dates.append(last_obs)
+
+        first_stress, last_stress = self._get_stresses_common_range()
+        if first_stress is not None:
+            min_dates.append(first_stress)
+            max_dates.append(last_stress)
+
+        for s in self._get_all_stress_series():
+            v_idx = s.dropna().index if hasattr(s, "dropna") and not s.dropna().empty else s.index
+            if len(v_idx) > 0:
+                min_dates.append(pd.to_datetime(v_idx.min()))
+                max_dates.append(pd.to_datetime(v_idx.max()))
+
+        if tmin:
+            min_dates.append(pd.to_datetime(tmin))
+        if tmax:
+            max_dates.append(pd.to_datetime(tmax))
+
+        if min_dates and max_dates:
+            overall_min = min(min_dates).date()
+            overall_max = max(max_dates).date()
+            abs_min = QDate(overall_min.year, overall_min.month, overall_min.day)
+            abs_max = QDate(overall_max.year, overall_max.month, overall_max.day)
             self.de_tmin.setMinimumDate(abs_min)
             self.de_tmin.setMaximumDate(abs_max)
             self.de_tmax.setMinimumDate(abs_min)
             self.de_tmax.setMaximumDate(abs_max)
 
             if tmin:
-                self.de_tmin.setDate(
-                    QDate.fromString(str(pd.to_datetime(tmin).date()), "yyyy-MM-dd")
-                )
+                d_min = pd.to_datetime(tmin).date()
+                self.de_tmin.setDate(QDate(d_min.year, d_min.month, d_min.day))
+            elif first_obs is not None:
+                d_min = first_obs.date()
+                self.de_tmin.setDate(QDate(d_min.year, d_min.month, d_min.day))
             else:
                 self.de_tmin.setDate(abs_min)
 
             if tmax:
-                self.de_tmax.setDate(
-                    QDate.fromString(str(pd.to_datetime(tmax).date()), "yyyy-MM-dd")
-                )
+                d_max = pd.to_datetime(tmax).date()
+                self.de_tmax.setDate(QDate(d_max.year, d_max.month, d_max.day))
+            elif last_obs is not None:
+                d_max = last_obs.date()
+                self.de_tmax.setDate(QDate(d_max.year, d_max.month, d_max.day))
             else:
                 self.de_tmax.setDate(abs_max)
 
@@ -352,8 +420,8 @@ class ModelEditorDialog(QDialog):
         self.chk_constant.setChecked(model.constant is not None)
 
         self.form_general.addRow(_tr("Model Name:"), self.le_name)
-        self.form_general.addRow(_tr("Tmin:"), self.de_tmin)
-        self.form_general.addRow(_tr("Tmax:"), self.de_tmax)
+        self.form_general.addRow(_tr("Tmin:"), self.row_tmin)
+        self.form_general.addRow(_tr("Tmax:"), self.row_tmax)
         self.form_general.addRow(_tr("Frequency:"), self.cbo_freq)
         self.form_general.addRow(_tr("Noise Model:"), self.cbo_noise)
         self.form_general.addRow(_tr("Transform:"), self.cbo_transform)
@@ -482,6 +550,11 @@ class ModelEditorDialog(QDialog):
         self.detail_trend_end.setDisplayFormat("yyyy-MM-dd")
         self.detail_trend_end.dateChanged.connect(self.save_detail_trend_end)
 
+        self.lbl_stress_range = QLabel("")
+        self.lbl_stress_range.setWordWrap(True)
+        self.lbl_stress_range.setVisible(False)
+
+        self.form_detail.addRow(_tr("Period:"), self.lbl_stress_range)
         self.form_detail.addRow(_tr("Name:"), self.detail_name)
         self.form_detail.addRow(_tr("Type:"), self.detail_type)
         self.form_detail.addRow(_tr("Response Function:"), self.detail_rfunc)
@@ -842,6 +915,8 @@ class ModelEditorDialog(QDialog):
         self.detail_trend_start.blockSignals(False)
         self.detail_trend_end.blockSignals(False)
 
+        self._update_stress_range_label()
+
     def update_detail_visibility(self, type_name):
         # Default visibility
         self.detail_rfunc.setVisible(True)
@@ -936,7 +1011,85 @@ class ModelEditorDialog(QDialog):
     def save_detail_up(self, checked):
         s = self.get_current_setting()
         if s:
+            old_up = s.get("up", True)
             s["up"] = checked
+            if old_up != checked:
+                self._update_parameters_for_up(s["name"], checked)
+
+    @staticmethod
+    def _parse_item_float(item):
+        if not item:
+            return None
+        val_data = item.data(Qt.ItemDataRole.UserRole)
+        if val_data is not None:
+            try:
+                val = float(val_data)
+                return val if not np.isnan(val) else None
+            except (ValueError, TypeError):
+                pass
+        txt = item.text().strip()
+        if txt not in ["-", "", "None", "nan"]:
+            try:
+                val = float(txt)
+                return val if not np.isnan(val) else None
+            except (ValueError, TypeError):
+                pass
+        return None
+
+    def _set_table_item_float(self, row, col, val_float):
+        item = self.table_params.item(row, col)
+        if item is None:
+            item = QTableWidgetItem()
+            self.table_params.setItem(row, col, item)
+        if val_float is not None and not np.isnan(val_float):
+            item.setText(f"{val_float:.4f}")
+            item.setData(Qt.ItemDataRole.UserRole, float(val_float))
+        else:
+            item.setText("-")
+            item.setData(Qt.ItemDataRole.UserRole, None)
+
+    def _update_parameters_for_up(self, sm_name, up):
+        """Update parameters table when 'up' setting changes."""
+        self.table_params.blockSignals(True)
+        try:
+            def _neg(v):
+                if v is None:
+                    return None
+                res = -v
+                return 0.0 if res == 0.0 else res
+
+            for i in range(self.table_params.rowCount()):
+                header_item = self.table_params.verticalHeaderItem(i)
+                if not header_item:
+                    continue
+                pname = header_item.text()
+                if not pname.startswith(f"{sm_name}_"):
+                    continue
+
+                # Clear optimal and stderr for all parameters belonging to this stressmodel
+                for col_idx in [1, 5]:  # optimal, stderr
+                    item = self.table_params.item(i, col_idx)
+                    if item:
+                        item.setText("-")
+                        item.setData(Qt.ItemDataRole.UserRole, None)
+
+                # For the gain parameter (_A or _d), flip initial and swap/flip bounds
+                if pname in (f"{sm_name}_A", f"{sm_name}_d"):
+                    initial_val = self._parse_item_float(self.table_params.item(i, 0))
+                    pmin_val = self._parse_item_float(self.table_params.item(i, 2))
+                    pmax_val = self._parse_item_float(self.table_params.item(i, 3))
+
+                    new_init = _neg(initial_val)
+                    new_pmin = _neg(pmax_val)
+                    new_pmax = _neg(pmin_val)
+
+                    self._set_table_item_float(i, 0, new_init)
+                    self._set_table_item_float(i, 2, new_pmin)
+                    self._set_table_item_float(i, 3, new_pmax)
+
+            self.update_stats_label(None)
+        finally:
+            self.table_params.blockSignals(False)
 
     def save_detail_input1(self, text):
         s = self.get_current_setting()
@@ -945,6 +1098,7 @@ class ModelEditorDialog(QDialog):
                 s["inputs"].append(text)
             else:
                 s["inputs"][0] = text
+            self._update_stress_range_label()
 
     def save_detail_input2(self, text):
         s = self.get_current_setting()
@@ -954,6 +1108,7 @@ class ModelEditorDialog(QDialog):
                     s["inputs"].append(text)
             else:
                 s["inputs"][1] = text
+            self._update_stress_range_label()
 
     def save_detail_step_date(self, date):
         s = self.get_current_setting()
@@ -1122,6 +1277,231 @@ class ModelEditorDialog(QDialog):
         except Exception:
             self.lbl_stats.setText("Stats: Not solved")
 
+    def _get_observation_range(self):
+        """Return (first_obs_time, last_obs_time) as pandas Timestamps, or (None, None)."""
+        model = getattr(self, "original_model", None)
+        if model is None or not hasattr(model, "oseries") or model.oseries is None:
+            return None, None
+        oseries = getattr(
+            model.oseries, "series_original", getattr(model.oseries, "series", None)
+        )
+        if oseries is None or len(oseries) == 0:
+            return None, None
+        valid_idx = (
+            oseries.dropna().index
+            if hasattr(oseries, "dropna") and not oseries.dropna().empty
+            else oseries.index
+        )
+        if len(valid_idx) == 0:
+            return None, None
+        return pd.to_datetime(valid_idx.min()), pd.to_datetime(valid_idx.max())
+
+    def _get_all_stress_series(self):
+        """Return a list of pandas Series for all stresses configured in the model/settings."""
+        series_list = []
+        seen_names = set()
+
+        # Collect stress names from stressmodel settings
+        stress_names = []
+        for sm_dict in getattr(self, "stressmodel_settings", []):
+            for inp in sm_dict.get("inputs", []):
+                if inp and inp not in seen_names:
+                    seen_names.add(inp)
+                    stress_names.append(inp)
+
+        # Retrieve series for each stress name
+        for name in stress_names:
+            s = None
+            if self.store is not None and hasattr(self.store, "get_stresses"):
+                try:
+                    s = self.store.get_stresses(name)
+                except Exception:
+                    s = None
+            if s is None and hasattr(self, "original_model") and hasattr(self.original_model, "stressmodels"):
+                for sm in self.original_model.stressmodels.values():
+                    for st in getattr(sm, "stress", []):
+                        if getattr(st, "name", None) == name:
+                            s = getattr(st, "series_original", getattr(st, "series", None))
+                            break
+                    if s is not None:
+                        break
+            if s is not None and len(s) > 0:
+                if hasattr(s, "series_original"):
+                    s = s.series_original
+                elif hasattr(s, "series"):
+                    s = s.series
+                series_list.append(s)
+
+        # Fallback to original_model.stressmodels if settings had no inputs
+        if not series_list and hasattr(self, "original_model") and hasattr(self.original_model, "stressmodels"):
+            for sm in self.original_model.stressmodels.values():
+                for st in getattr(sm, "stress", []):
+                    s = getattr(st, "series_original", getattr(st, "series", None))
+                    if s is not None and len(s) > 0:
+                        series_list.append(s)
+
+        return series_list
+
+    def _get_stress_series_by_name(self, name):
+        """Return the pandas Series for a single stress name, or None."""
+        s = None
+        if self.store is not None and hasattr(self.store, "get_stresses"):
+            try:
+                s = self.store.get_stresses(name)
+            except Exception:
+                s = None
+        if s is None and hasattr(self, "original_model") and hasattr(self.original_model, "stressmodels"):
+            for sm in self.original_model.stressmodels.values():
+                for st in getattr(sm, "stress", []):
+                    if getattr(st, "name", None) == name:
+                        s = getattr(st, "series_original", getattr(st, "series", None))
+                        break
+                if s is not None:
+                    break
+        if s is not None:
+            if hasattr(s, "series_original"):
+                s = s.series_original
+            elif hasattr(s, "series"):
+                s = s.series
+        return s
+
+    def _update_stress_range_label(self):
+        """Update the Period label in the detail panel with the date range of the current stress input(s)."""
+        s = self.get_current_setting()
+        label = getattr(self, "lbl_stress_range", None)
+        if label is None:
+            return
+
+        if s is None or not s.get("inputs"):
+            label.setText("")
+            label.setVisible(False)
+            lbl_field = self.form_detail.labelForField(label)
+            if lbl_field:
+                lbl_field.setVisible(False)
+            return
+
+        parts = []
+        for inp_name in s["inputs"]:
+            if not inp_name:
+                continue
+            series = self._get_stress_series_by_name(inp_name)
+            if series is None or len(series) == 0:
+                parts.append(_tr("{}: (no data)").format(inp_name))
+                continue
+            valid = series.dropna()
+            if len(valid) == 0:
+                parts.append(_tr("{}: (no data)").format(inp_name))
+                continue
+            first = pd.Timestamp(valid.index.min()).strftime("%Y-%m-%d")
+            last = pd.Timestamp(valid.index.max()).strftime("%Y-%m-%d")
+            parts.append("{}: {} – {}".format(inp_name, first, last))
+
+        if parts:
+            label.setText("\n".join(parts))
+            label.setVisible(True)
+            lbl_field = self.form_detail.labelForField(label)
+            if lbl_field:
+                lbl_field.setVisible(True)
+        else:
+            label.setText("")
+            label.setVisible(False)
+            lbl_field = self.form_detail.labelForField(label)
+            if lbl_field:
+                lbl_field.setVisible(False)
+
+    def _get_stresses_common_range(self):
+        """Return (first_moment_all_stresses, last_moment_all_stresses) as pandas Timestamps, or (None, None)."""
+        series_list = self._get_all_stress_series()
+        if not series_list:
+            return None, None
+
+        start_dates = []
+        end_dates = []
+        for s in series_list:
+            valid_idx = (
+                s.dropna().index
+                if hasattr(s, "dropna") and not s.dropna().empty
+                else s.index
+            )
+            if len(valid_idx) > 0:
+                start_dates.append(pd.to_datetime(valid_idx.min()))
+                end_dates.append(pd.to_datetime(valid_idx.max()))
+
+        if not start_dates or not end_dates:
+            return None, None
+
+        first_all = max(start_dates)
+        last_all = min(end_dates)
+        return first_all, last_all
+
+    def set_tmin_to_first_observation(self):
+        first_obs, _ = self._get_observation_range()
+        if first_obs is not None:
+            d = first_obs.date()
+            qdate = QDate(d.year, d.month, d.day)
+            if qdate < self.de_tmin.minimumDate():
+                self.de_tmin.setMinimumDate(qdate)
+            if qdate > self.de_tmin.maximumDate():
+                self.de_tmin.setMaximumDate(qdate)
+            self.de_tmin.setDate(qdate)
+        else:
+            QMessageBox.information(
+                self,
+                _tr("No Observations Available"),
+                _tr("No observation series was found in the model."),
+            )
+
+    def set_tmin_to_first_all_stresses(self):
+        first_all, _ = self._get_stresses_common_range()
+        if first_all is not None:
+            d = first_all.date()
+            qdate = QDate(d.year, d.month, d.day)
+            if qdate < self.de_tmin.minimumDate():
+                self.de_tmin.setMinimumDate(qdate)
+            if qdate > self.de_tmin.maximumDate():
+                self.de_tmin.setMaximumDate(qdate)
+            self.de_tmin.setDate(qdate)
+        else:
+            QMessageBox.information(
+                self,
+                _tr("No Stresses Available"),
+                _tr("No stress series were found in the model."),
+            )
+
+    def set_tmax_to_last_observation(self):
+        _, last_obs = self._get_observation_range()
+        if last_obs is not None:
+            d = last_obs.date()
+            qdate = QDate(d.year, d.month, d.day)
+            if qdate < self.de_tmax.minimumDate():
+                self.de_tmax.setMinimumDate(qdate)
+            if qdate > self.de_tmax.maximumDate():
+                self.de_tmax.setMaximumDate(qdate)
+            self.de_tmax.setDate(qdate)
+        else:
+            QMessageBox.information(
+                self,
+                _tr("No Observations Available"),
+                _tr("No observation series was found in the model."),
+            )
+
+    def set_tmax_to_last_all_stresses(self):
+        _, last_all = self._get_stresses_common_range()
+        if last_all is not None:
+            d = last_all.date()
+            qdate = QDate(d.year, d.month, d.day)
+            if qdate < self.de_tmax.minimumDate():
+                self.de_tmax.setMinimumDate(qdate)
+            if qdate > self.de_tmax.maximumDate():
+                self.de_tmax.setMaximumDate(qdate)
+            self.de_tmax.setDate(qdate)
+        else:
+            QMessageBox.information(
+                self,
+                _tr("No Stresses Available"),
+                _tr("No stress series were found in the model."),
+            )
+
     def _apply_model_changes(self, solve=False, show_progress=False):
         busy = None
         if show_progress:
@@ -1268,48 +1648,71 @@ class ModelEditorDialog(QDialog):
                     raise
 
             # Apply Parameters
-            # Capture from table
-            def _parse_item_float(item):
-                if not item:
-                    return None
-                val_data = item.data(Qt.ItemDataRole.UserRole)
-                if val_data is not None:
-                    try:
-                        val = float(val_data)
-                        return val if not np.isnan(val) else None
-                    except (ValueError, TypeError):
-                        pass
-                txt = item.text().strip()
-                if txt not in ["-", "", "None", "nan"]:
-                    try:
-                        val = float(txt)
-                        return val if not np.isnan(val) else None
-                    except (ValueError, TypeError):
-                        pass
-                return None
-
             for i in range(self.table_params.rowCount()):
-                pname = self.table_params.verticalHeaderItem(i).text()
-                # Check if this parameter exists in the new model structure
-                # We can try to set it, if it fails, ignore (param might be gone due to structure change)
+                header_item = self.table_params.verticalHeaderItem(i)
+                if not header_item:
+                    continue
+                pname = header_item.text()
+                if pname not in model.parameters.index:
+                    continue
+
                 try:
-                    initial_val = _parse_item_float(self.table_params.item(i, 0))
-                    optimal_val = _parse_item_float(self.table_params.item(i, 1))
-                    pmin_val = _parse_item_float(self.table_params.item(i, 2))
-                    pmax_val = _parse_item_float(self.table_params.item(i, 3))
+                    initial_val = self._parse_item_float(self.table_params.item(i, 0))
+                    optimal_val = self._parse_item_float(self.table_params.item(i, 1))
+                    pmin_val = self._parse_item_float(self.table_params.item(i, 2))
+                    pmax_val = self._parse_item_float(self.table_params.item(i, 3))
                     vary_item = self.table_params.item(i, 4)
 
+                    params_kwargs = {}
                     if initial_val is not None:
-                        model.set_parameter(name=pname, initial=initial_val)
-                    if optimal_val is not None:
-                        model.set_parameter(name=pname, optimal=optimal_val)
+                        params_kwargs["initial"] = initial_val
                     if pmin_val is not None:
-                        model.set_parameter(name=pname, pmin=pmin_val)
+                        params_kwargs["pmin"] = pmin_val
                     if pmax_val is not None:
-                        model.set_parameter(name=pname, pmax=pmax_val)
+                        params_kwargs["pmax"] = pmax_val
                     if vary_item:
-                        val = vary_item.text().lower() == "true"
-                        model.set_parameter(name=pname, vary=val)
+                        params_kwargs["vary"] = vary_item.text().lower() == "true"
+                    if optimal_val is not None and not solve:
+                        params_kwargs["optimal"] = optimal_val
+
+                    # Validate bounds and initial consistency before setting
+                    curr_pmin = params_kwargs.get("pmin", model.parameters.at[pname, "pmin"])
+                    curr_pmax = params_kwargs.get("pmax", model.parameters.at[pname, "pmax"])
+                    curr_init = params_kwargs.get("initial", model.parameters.at[pname, "initial"])
+
+                    valid = True
+                    if curr_pmin is not None and curr_pmax is not None:
+                        if not (np.isnan(curr_pmin) or np.isnan(curr_pmax)) and curr_pmin > curr_pmax:
+                            valid = False
+                    if valid and curr_init is not None and not np.isnan(curr_init):
+                        if curr_pmin is not None and not np.isnan(curr_pmin) and curr_init < curr_pmin:
+                            valid = False
+                        if curr_pmax is not None and not np.isnan(curr_pmax) and curr_init > curr_pmax:
+                            valid = False
+
+                    # Check consistency with stressmodel 'up' setting
+                    if valid:
+                        cat = model.parameters.at[pname, "name"]
+                        if cat in model.stressmodels and pname in (f"{cat}_A", f"{cat}_d"):
+                            sm_obj = model.stressmodels[cat]
+                            sm_up = getattr(getattr(sm_obj, "rfunc", None), "up", getattr(sm_obj, "up", None))
+                            if sm_up is False:
+                                if (curr_init is not None and not np.isnan(curr_init) and curr_init > 0) or \
+                                   (curr_pmin is not None and not np.isnan(curr_pmin) and curr_pmin > 0):
+                                    valid = False
+                            elif sm_up is True:
+                                if (curr_init is not None and not np.isnan(curr_init) and curr_init < 0) or \
+                                   (curr_pmax is not None and not np.isnan(curr_pmax) and curr_pmax < 0):
+                                    valid = False
+
+                    if valid:
+                        model.set_parameter(name=pname, **params_kwargs)
+                    else:
+                        import logging
+                        logging.getLogger(__name__).warning(
+                            "Skipping parameter %s update from table due to bounds inconsistency (pmin=%s, initial=%s, pmax=%s)",
+                            pname, curr_pmin, curr_init, curr_pmax,
+                        )
 
                 except Exception as err:
                     # Parameter might not be in the new model structure

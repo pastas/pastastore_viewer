@@ -602,6 +602,50 @@ Even geduld.</translation>
         <translation>Tmax:</translation>
     </message>
     <message>
+        <source>First Observation</source>
+        <translation>Eerste waarneming</translation>
+    </message>
+    <message>
+        <source>Last Observation</source>
+        <translation>Laatste waarneming</translation>
+    </message>
+    <message>
+        <source>All Stresses</source>
+        <translation>Alle stresses</translation>
+    </message>
+    <message>
+        <source>Set tmin to the time of the first observation</source>
+        <translation>Zet tmin op het tijdstip van de eerste waarneming</translation>
+    </message>
+    <message>
+        <source>Set tmin to the first moment that all stresses are available</source>
+        <translation>Zet tmin op het eerste moment dat alle stresses beschikbaar zijn</translation>
+    </message>
+    <message>
+        <source>Set tmax to the time of the last observation</source>
+        <translation>Zet tmax op het tijdstip van de laatste waarneming</translation>
+    </message>
+    <message>
+        <source>Set tmax to the last moment that all stresses are available</source>
+        <translation>Zet tmax op het laatste moment dat alle stresses beschikbaar zijn</translation>
+    </message>
+    <message>
+        <source>No Observations Available</source>
+        <translation>Geen waarnemingen beschikbaar</translation>
+    </message>
+    <message>
+        <source>No observation series was found in the model.</source>
+        <translation>Geen waarnemingenreeks gevonden in het model.</translation>
+    </message>
+    <message>
+        <source>No Stresses Available</source>
+        <translation>Geen stresses beschikbaar</translation>
+    </message>
+    <message>
+        <source>No stress series were found in the model.</source>
+        <translation>Geen stressesreeksen gevonden in het model.</translation>
+    </message>
+    <message>
         <source>Noise Model:</source>
         <translation>Ruismodel:</translation>
     </message>
@@ -676,6 +720,14 @@ Even geduld.</translation>
     <message>
         <source>Upgrade to Pro to solve models</source>
         <translation>Upgrade naar Pro om modellen op te lossen</translation>
+    </message>
+    <message>
+        <source>Period:</source>
+        <translation>Periode:</translation>
+    </message>
+    <message>
+        <source>{}: (no data)</source>
+        <translation>{}: (geen data)</translation>
     </message>
 
 </context>

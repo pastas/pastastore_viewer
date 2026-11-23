@@ -67,6 +67,7 @@ _BUNDLED_PACKAGES = {
     "brodata",
     "hydropandas",
     "tqdm",
+    "colorama",
 }
 _PLUGIN_DEPS_MODULES = {}
 
@@ -96,7 +97,15 @@ def _install_scoped_import_hook():
             sys.path.insert(0, _DEPS_DIR)
 
         try:
-            for pkg_name in ["pastas", "pastastore", "pyqtgraph", "brodata", "hydropandas", "tqdm"]:
+            for pkg_name in [
+                "pastas",
+                "pastastore",
+                "pyqtgraph",
+                "brodata",
+                "hydropandas",
+                "tqdm",
+                "colorama",
+            ]:
                 try:
                     importlib.import_module(pkg_name)
                 except Exception as err:
