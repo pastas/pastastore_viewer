@@ -13,7 +13,6 @@
 import importlib
 import importlib.util
 import os
-import subprocess
 import sys
 import threading
 from contextlib import contextmanager

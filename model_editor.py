@@ -86,8 +86,12 @@ def _get_timeseries_presets():
     if hasattr(_ps, "rcParams"):
         try:
             return _ps.rcParams["timeseries"]
-        except Exception:
-            pass
+        except Exception as err:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "Failed to read timeseries presets from pastas.rcParams: %s", err
+            )
     return {}
 
 
