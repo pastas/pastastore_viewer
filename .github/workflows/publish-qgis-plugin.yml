@@ -2,6 +2,12 @@ name: Publish QGIS Plugin
 
 on:
   workflow_dispatch:
+    inputs:
+      upload_to_qgis:
+        description: "Upload built plugin zip to plugins.qgis.org (leave unchecked to build a test zip artifact only)"
+        required: true
+        type: boolean
+        default: false
   release:
     types:
       - published
@@ -64,7 +70,15 @@ jobs:
             zip -r "../${ZIP_NAME}" "${PLUGIN_FOLDER}"
           )
 
+      - name: Upload plugin zip artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pastastore_viewer-plugin-zip
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
       - name: Upload to QGIS plugin repository (token)
+        if: ${{ github.event_name == 'release' || inputs.upload_to_qgis == true }}
         shell: bash
         env:
           QGIS_PLUGIN_TOKEN: ${{ secrets.QGIS_PLUGIN_TOKEN }}

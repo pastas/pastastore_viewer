@@ -97,8 +97,10 @@ Workflow file:
 
 ### How publishing is triggered
 
-- **Manual**: run the workflow from **Actions > Publish QGIS Plugin > Run workflow**
-- **Automatic**: when a GitHub release is published
+- **Manual (test build or publish)**: run the workflow from **Actions > Publish QGIS Plugin > Run workflow**.
+  - Leave **Upload built plugin zip to plugins.qgis.org** unchecked (default) to build `pastastore_viewer.zip` as a downloadable workflow artifact (`pastastore_viewer-plugin-zip`) without publishing. Extract `pastastore_viewer.zip` from the downloaded artifact and install it in QGIS via **Plugins > Manage and Install Plugins > Install from ZIP**.
+  - Check **Upload built plugin zip to plugins.qgis.org** to also publish the built zip to the QGIS plugin repository.
+- **Automatic**: when a GitHub release is published (builds the artifact and publishes to the QGIS plugin repository).
 
-The workflow runs `bundle_deps.py` to package dependencies, creates `pastastore_viewer.zip` containing the plugin folder, and uploads it through the QGIS plugin API endpoint using the `QGIS_PLUGIN_TOKEN`.
+The workflow runs `bundle_deps.py` to package dependencies, creates `pastastore_viewer.zip` containing the plugin folder, uploads it as a GitHub Actions artifact, and (when publishing) uploads it through the QGIS plugin API endpoint using the `QGIS_PLUGIN_TOKEN`.
 
