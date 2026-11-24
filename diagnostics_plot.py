@@ -1,7 +1,6 @@
 import numpy as np
 import pastas as ps
 import pyqtgraph as pg
-from pastas.stats.core import acf as get_acf
 from pyqtgraph import DateAxisItem
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
@@ -9,6 +8,13 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
 )
 from scipy.stats import norm, probplot
+
+try:
+    from .model_analysis import compute_fast_acf
+    from .plot_toolbar import create_fill_between_item
+except (ImportError, ValueError):
+    from model_analysis import compute_fast_acf
+    from plot_toolbar import create_fill_between_item
 
 
 class DiagnosticsPlotDialog(QDialog):
@@ -148,7 +154,7 @@ class DiagnosticsPlotDialog(QDialog):
     def _plot_acf(self, plot, series, alpha=0.05):
         """Plot ACF bars and confidence band."""
         try:
-            r = get_acf(series, full_output=True, alpha=alpha)
+            r = compute_fast_acf(series, alpha=alpha)
         except Exception:
             plot.setTitle("ACF (error computing)", color="r")
             return
@@ -163,12 +169,11 @@ class DiagnosticsPlotDialog(QDialog):
         # Confidence band
         upper = conf
         lower = -conf
-        fill = pg.FillBetweenItem(
-            pg.PlotDataItem(lags, upper),
-            pg.PlotDataItem(lags, lower),
-            brush=pg.mkBrush(31, 119, 180, 80),
+        fill = create_fill_between_item(
+            pg, lags, upper, lower, brush=pg.mkBrush(31, 119, 180, 80)
         )
-        plot.addItem(fill)
+        if fill is not None:
+            plot.addItem(fill)
 
         # ACF vlines via BarGraphItem (width = 0.3 days looks good)
         if len(lags) > 1:

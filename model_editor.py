@@ -103,7 +103,15 @@ class StressSettingsDialog(QDialog):
     FILL_OPTIONS = ["mean", "interpolate", "0.0", "None"]
     FIELDS = ["sample_up", "sample_down", "fill_nan", "fill_before", "fill_after"]
 
-    def __init__(self, keyword="prec", custom_dict=None, stress_name="", parent=None):
+    def __init__(
+        self,
+        keyword="prec",
+        custom_dict=None,
+        stress_name="",
+        parent=None,
+        tmin=None,
+        tmax=None,
+    ):
         super().__init__(parent)
         self.setWindowTitle(_tr("Settings") + (f" — {stress_name}" if stress_name else ""))
         self.setMinimumWidth(360)
@@ -112,9 +120,15 @@ class StressSettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # ---- Keyword preset row ----
+        # ---- Stress period & keyword preset rows ----
         form_top = QFormLayout()
         form_top.setContentsMargins(0, 0, 0, 0)
+
+        self.lbl_first_value = QLabel(self._format_timestamp(tmin))
+        self.lbl_last_value = QLabel(self._format_timestamp(tmax))
+        form_top.addRow(_tr("First value:"), self.lbl_first_value)
+        form_top.addRow(_tr("Last value:"), self.lbl_last_value)
+
         self.cbo_keyword = QComboBox()
         self.cbo_keyword.addItems(self.KEYWORDS)
         self.cbo_keyword.setCurrentText(keyword if keyword in self.KEYWORDS else "custom")
@@ -198,6 +212,21 @@ class StressSettingsDialog(QDialog):
     def _read_fields(self):
         """Return a dict of the current values from all field widgets."""
         return {f: self._parse_value(w.currentText()) for f, w in self._field_widgets.items()}
+
+    @staticmethod
+    def _format_timestamp(ts):
+        """Format a timestamp for display, omitting 00:00:00 time component."""
+        if ts is None:
+            return "-"
+        try:
+            ts = pd.Timestamp(ts)
+            if pd.isna(ts):
+                return "-"
+            if ts.hour == 0 and ts.minute == 0 and ts.second == 0:
+                return ts.strftime("%Y-%m-%d")
+            return ts.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return str(ts)
 
     @staticmethod
     def _parse_value(text):
@@ -554,11 +583,6 @@ class ModelEditorDialog(QDialog):
         self.detail_trend_end.setDisplayFormat("yyyy-MM-dd")
         self.detail_trend_end.dateChanged.connect(self.save_detail_trend_end)
 
-        self.lbl_stress_range = QLabel("")
-        self.lbl_stress_range.setWordWrap(True)
-        self.lbl_stress_range.setVisible(False)
-
-        self.form_detail.addRow(_tr("Period:"), self.lbl_stress_range)
         self.form_detail.addRow(_tr("Name:"), self.detail_name)
         self.form_detail.addRow(_tr("Type:"), self.detail_type)
         self.form_detail.addRow(_tr("Response Function:"), self.detail_rfunc)
@@ -919,8 +943,6 @@ class ModelEditorDialog(QDialog):
         self.detail_trend_start.blockSignals(False)
         self.detail_trend_end.blockSignals(False)
 
-        self._update_stress_range_label()
-
     def update_detail_visibility(self, type_name):
         # Default visibility
         self.detail_rfunc.setVisible(True)
@@ -1102,7 +1124,6 @@ class ModelEditorDialog(QDialog):
                 s["inputs"].append(text)
             else:
                 s["inputs"][0] = text
-            self._update_stress_range_label()
 
     def save_detail_input2(self, text):
         s = self.get_current_setting()
@@ -1112,7 +1133,6 @@ class ModelEditorDialog(QDialog):
                     s["inputs"].append(text)
             else:
                 s["inputs"][1] = text
-            self._update_stress_range_label()
 
     def save_detail_step_date(self, date):
         s = self.get_current_setting()
@@ -1141,6 +1161,10 @@ class ModelEditorDialog(QDialog):
             return
         inputs = s.get("inputs", [])
         stress_name = inputs[idx] if idx < len(inputs) else ""
+        if not stress_name:
+            cbo = self.detail_input1 if idx == 0 else self.detail_input2
+            if hasattr(cbo, "currentText"):
+                stress_name = cbo.currentText()
 
         kws = s.setdefault("settings_kws", [])
         while len(kws) <= idx:
@@ -1152,11 +1176,15 @@ class ModelEditorDialog(QDialog):
             customs.append({})
         current_custom = customs[idx]
 
+        tmin, tmax = self._get_stress_range(stress_name)
+
         dlg = StressSettingsDialog(
             keyword=current_kw,
             custom_dict=current_custom,
             stress_name=stress_name,
             parent=self,
+            tmin=tmin,
+            tmax=tmax,
         )
         if dlg.exec():
             new_kw = dlg.get_keyword()
@@ -1369,49 +1397,17 @@ class ModelEditorDialog(QDialog):
                 s = s.series
         return s
 
-    def _update_stress_range_label(self):
-        """Update the Period label in the detail panel with the date range of the current stress input(s)."""
-        s = self.get_current_setting()
-        label = getattr(self, "lbl_stress_range", None)
-        if label is None:
-            return
-
-        if s is None or not s.get("inputs"):
-            label.setText("")
-            label.setVisible(False)
-            lbl_field = self.form_detail.labelForField(label)
-            if lbl_field:
-                lbl_field.setVisible(False)
-            return
-
-        parts = []
-        for inp_name in s["inputs"]:
-            if not inp_name:
-                continue
-            series = self._get_stress_series_by_name(inp_name)
-            if series is None or len(series) == 0:
-                parts.append(_tr("{}: (no data)").format(inp_name))
-                continue
-            valid = series.dropna()
-            if len(valid) == 0:
-                parts.append(_tr("{}: (no data)").format(inp_name))
-                continue
-            first = pd.Timestamp(valid.index.min()).strftime("%Y-%m-%d")
-            last = pd.Timestamp(valid.index.max()).strftime("%Y-%m-%d")
-            parts.append("{}: {} – {}".format(inp_name, first, last))
-
-        if parts:
-            label.setText("\n".join(parts))
-            label.setVisible(True)
-            lbl_field = self.form_detail.labelForField(label)
-            if lbl_field:
-                lbl_field.setVisible(True)
-        else:
-            label.setText("")
-            label.setVisible(False)
-            lbl_field = self.form_detail.labelForField(label)
-            if lbl_field:
-                lbl_field.setVisible(False)
+    def _get_stress_range(self, name):
+        """Return (first_timestamp, last_timestamp) for the named stress series, or (None, None)."""
+        if not name:
+            return None, None
+        series = self._get_stress_series_by_name(name)
+        if series is None or len(series) == 0:
+            return None, None
+        valid = series.dropna() if hasattr(series, "dropna") else series
+        if len(valid) == 0:
+            return None, None
+        return pd.Timestamp(valid.index.min()), pd.Timestamp(valid.index.max())
 
     def _get_stresses_common_range(self):
         """Return (first_moment_all_stresses, last_moment_all_stresses) as pandas Timestamps, or (None, None)."""

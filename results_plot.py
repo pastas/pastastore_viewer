@@ -4,7 +4,7 @@ import pastas as ps
 import pyqtgraph as pg
 from pyqtgraph import DateAxisItem
 from qgis.core import QgsProject
-from qgis.PyQt.QtCore import Qt, QTimer
+from qgis.PyQt.QtCore import QEvent, Qt
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
     QAction,
@@ -15,7 +15,6 @@ from qgis.PyQt.QtWidgets import (
     QHeaderView,
     QMenu,
     QPushButton,
-    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -40,15 +39,14 @@ class ResultsPlotDialog(QDialog):
         # Settings state with QGIS Project persistence
         self.load_settings()
 
-        self.overhead = 55
+        self.title_overhead = 32
+        self.bottom_axis_overhead = 20
         self.spacing = 10
-        self.margins = 10
         self.y_axis_width = 40
-
-        self._resize_timer = QTimer(self)
-        self._resize_timer.setSingleShot(True)
-        self._resize_timer.setInterval(60)
-        self._resize_timer.timeout.connect(self.plot_results)
+        self._plot_ranges = []
+        self._row_plots = []
+        self._params_proxy = None
+        self._applied_height = None
 
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(5, 5, 5, 5)
@@ -90,29 +88,74 @@ class ResultsPlotDialog(QDialog):
         self.toolbar_layout.addStretch()
         self.main_layout.addLayout(self.toolbar_layout)
 
-        # Scroll Area
-        self.scroll = QScrollArea()
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_content = QWidget()
-        self.scroll_layout = QVBoxLayout(self.scroll_content)
-        self.scroll_layout.setContentsMargins(0, 0, 0, 0)
-        self.scroll_layout.setSpacing(0)
-
+        # Graphics layout filling the dialog directly
         self.win = pg.GraphicsLayoutWidget()
         self.win.setBackground("w")
+        self.win.setFrameShape(QFrame.Shape.NoFrame)
         self.win.ci.layout.setContentsMargins(0, 0, 0, 0)
         self.win.ci.layout.setSpacing(self.spacing)
-        self.scroll_layout.addWidget(self.win)
-        self.scroll.setWidget(self.scroll_content)
-        self.main_layout.addWidget(self.scroll)
+        self.win.installEventFilter(self)
+        self.main_layout.addWidget(self.win)
 
         self.plot_results()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if hasattr(self, "_resize_timer"):
-            self._resize_timer.start()
+    def eventFilter(self, obj, event):
+        resize_type = getattr(QEvent, "Resize", None)
+        if resize_type is None:
+            resize_type = getattr(getattr(QEvent, "Type", None), "Resize", 14)
+        if obj is getattr(self, "win", None) and int(event.type()) == int(resize_type):
+            h = event.size().height()
+            if h > 0:
+                self._apply_row_heights(h)
+        return super().eventFilter(obj, event)
+
+    def _get_available_height(self):
+        """Return the vertical pixel height available for the subplots.
+
+        Before the dialog is shown, child widgets have not been laid out yet,
+        so compute the exact plot area height from the dialog height and
+        toolbar size hint beforehand.
+        """
+        if self.isVisible() and self.win.height() > 0:
+            return self.win.height()
+        m = self.main_layout.contentsMargins()
+        toolbar_h = self.toolbar_layout.sizeHint().height() or 30
+        layout_spacing = self.main_layout.spacing()
+        if layout_spacing < 0:
+            layout_spacing = 6
+        return max(
+            self.height() - toolbar_h - m.top() - m.bottom() - layout_spacing,
+            200,
+        )
+
+    def _apply_row_heights(self, available_height=None):
+        """Resize subplot rows and parameter table in place to fill the height."""
+        if not self._plot_ranges or not self._row_plots:
+            return
+        if available_height is None:
+            available_height = self._get_available_height()
+        available_height = int(available_height)
+        if available_height <= 0 or available_height == self._applied_height:
+            return
+
+        row_heights = calculate_subplot_heights(
+            self._plot_ranges,
+            available_height,
+            title_overhead=self.title_overhead,
+            bottom_axis_overhead=self.bottom_axis_overhead,
+            spacing=self.spacing,
+        )
+        for plots_in_row, h in zip(self._row_plots, row_heights):
+            for p in plots_in_row:
+                p.setMinimumHeight(h)
+                p.setMaximumHeight(h)
+
+        if self._params_proxy is not None and len(row_heights) >= 2:
+            proxy_h = row_heights[0] + row_heights[1] + self.spacing
+            self._params_proxy.setMinimumHeight(0)
+            self._params_proxy.setMaximumHeight(proxy_h)
+
+        self._applied_height = available_height
 
     def load_settings(self):
         proj = QgsProject.instance()
@@ -189,15 +232,15 @@ class ResultsPlotDialog(QDialog):
 
     def plot_results(self):
         self.win.clear()
+        self._plot_ranges = []
+        self._row_plots = []
+        self._params_proxy = None
+        self._applied_height = None
         ml = self.ml
 
-        OVERHEAD = self.overhead
-        SPACING = self.spacing
-        MARGINS = self.margins
         Y_AXIS_WIDTH = self.y_axis_width
 
         # 1. Determine Y-limits for each plot
-        sm_names = list(ml.stressmodels.keys())
         ylims = []
 
         # Helper to get range respecting warmup
@@ -235,50 +278,11 @@ class ResultsPlotDialog(QDialog):
         if not ylims:
             p = self.win.addPlot(row=0, col=0)
             p.setTitle("No data to display", color="r")
-            self.win.setMinimumHeight(100)
-            self.win.setMaximumHeight(100)
             return
 
-        ranges = [y[1] - y[0] if y[1] != y[0] else 0.001 for y in ylims]
-        total_data_range = sum(ranges)
-        num_plots = len(ylims)
+        self._plot_ranges = [y[1] - y[0] if y[1] != y[0] else 0.001 for y in ylims]
 
-        # Use actual viewport height if available (after first show),
-        # else fall back to dialog height minus toolbar (resize(1200,900) is set in __init__).
-        viewport_h = self.scroll.viewport().height()
-        if viewport_h < 50:
-            toolbar_h = self.toolbar_layout.sizeHint().height() or 30
-            m = self.main_layout.contentsMargins()
-            viewport_h = max(self.height() - toolbar_h - m.top() - m.bottom() - 15, 200)
-
-        total_overhead = (
-            num_plots * OVERHEAD + max(num_plots - 1, 0) * SPACING + MARGINS
-        )
-        available_data_h = max(viewport_h - total_overhead, num_plots * 5)
-        ppu = available_data_h / total_data_range if total_data_range > 0 else 50.0
-
-        # Float heights — equal ppu guarantees equal vertical scale
-        float_heights = [r * ppu + OVERHEAD for r in ranges]
-        # Absorb any rounding gap in the last row so total == viewport_h exactly
-        raw_sum = sum(float_heights) + max(num_plots - 1, 0) * SPACING + MARGINS
-        float_heights[-1] += viewport_h - raw_sum
-        row_heights = [max(30, int(round(h))) for h in float_heights]
-        # After rounding, fix residual to last row
-        rounded_sum = sum(row_heights) + max(num_plots - 1, 0) * SPACING + MARGINS
-        row_heights[-1] += viewport_h - rounded_sum
-
-        sm_colors = [
-            "#ff7f0e",
-            "#2ca02c",
-            "#d62728",
-            "#9467bd",
-            "#8c564b",
-            "#e377c2",
-            "#7f7f7f",
-            "#bcbd22",
-            "#17becf",
-        ]
-        h_list = []
+        DEFAULT_COLOR = "#1f77b4"  # Matplotlib C0
         main_col_plots = []
         side_plots = []
 
@@ -291,12 +295,9 @@ class ResultsPlotDialog(QDialog):
             p1.setTitle("Observations & Simulation (Not Solved)", color="k")
         p1.addLegend()
         p1.showGrid(x=True, y=True)
-        h1 = row_heights[0]
-        p1.setMinimumHeight(h1)
-        p1.setMaximumHeight(h1)
         p1.setYRange(ylims[0][0], ylims[0][1], padding=0)
-        h_list.append(h1)
         main_col_plots.append(p1)
+        self._row_plots.append([p1])
 
         ox, oy = self._prepare_data(obs)
         if ox is not None:
@@ -305,7 +306,7 @@ class ResultsPlotDialog(QDialog):
             )
         sx, sy = self._prepare_data(sim)
         if sx is not None:
-            p1.plot(sx, sy, pen=pg.mkPen("#1f77b4", width=2), name="Sim")
+            p1.plot(sx, sy, pen=pg.mkPen(DEFAULT_COLOR, width=2), name="Sim")
 
         # Row 1: Residuals/Noise Plot
         p2 = self.win.addPlot(row=1, col=0, axisItems={"bottom": DateAxisItem()})
@@ -313,20 +314,18 @@ class ResultsPlotDialog(QDialog):
         p2.setTitle(p2_title, color="k")
         p2.showGrid(x=True, y=True)
         p2.setXLink(p1)
-        h2 = row_heights[1]
-        p2.setMinimumHeight(h2)
-        p2.setMaximumHeight(h2)
         p2.setYRange(ylims[1][0], ylims[1][1], padding=0)
-        h_list.append(h2)
         main_col_plots.append(p2)
+        self._row_plots.append([p2])
 
         rx, ry = self._prepare_data(res)
         if rx is not None:
-            p2.plot(rx, ry, pen=pg.mkPen("k", width=1), name="Residuals")
+            res_color = "k" if noise is not None else DEFAULT_COLOR
+            p2.plot(rx, ry, pen=pg.mkPen(res_color, width=1), name="Residuals")
         if noise is not None:
             nx, ny = self._prepare_data(noise)
             if nx is not None:
-                p2.plot(nx, ny, pen=pg.mkPen("orange", width=1), name="Noise")
+                p2.plot(nx, ny, pen=pg.mkPen(DEFAULT_COLOR, width=1), name="Noise")
 
         # Row 0-1, Col 1: Parameters Table
         table_container = QWidget()
@@ -369,6 +368,7 @@ class ResultsPlotDialog(QDialog):
         proxy.setMaximumWidth(
             350 + Y_AXIS_WIDTH if not self.show_stderr else 450 + Y_AXIS_WIDTH
         )
+        self._params_proxy = proxy
 
         # Rows 2+: Contributions and Step/Block Responses
         # Get contribution names to match with series
@@ -399,7 +399,6 @@ class ResultsPlotDialog(QDialog):
 
         # Now plot contributions and responses with consistent x-limits
         for i, contrib_series in enumerate(sm_contribs):
-            color = sm_colors[i % len(sm_colors)]
             row_idx = i + 2
             contrib_name = contrib_names[i]
             if i < len(responses):
@@ -413,16 +412,12 @@ class ResultsPlotDialog(QDialog):
             p_sm.setTitle(f"Contribution: {contrib_name}", color="k")
             p_sm.showGrid(x=True, y=True)
             p_sm.setXLink(p1)
-            h_sm = row_heights[row_idx]
-            p_sm.setMinimumHeight(h_sm)
-            p_sm.setMaximumHeight(h_sm)
             p_sm.setYRange(ylims[row_idx][0], ylims[row_idx][1], padding=0)
-            h_list.append(h_sm)
             main_col_plots.append(p_sm)
 
             cx, cy = self._prepare_data(contrib_series)
             if cx is not None:
-                p_sm.plot(cx, cy, pen=pg.mkPen(color, width=1.5))
+                p_sm.plot(cx, cy, pen=pg.mkPen(DEFAULT_COLOR, width=1.5))
 
             # Response plot (step or block)
             p_rf = self.win.addPlot(row=row_idx, col=1)
@@ -436,9 +431,8 @@ class ResultsPlotDialog(QDialog):
             p_rf.showGrid(x=True, y=True)
             if self.show_block_response:
                 p_rf.setLogMode(x=True, y=False)
-            p_rf.setMinimumHeight(h_sm)
-            p_rf.setMaximumHeight(h_sm)
             side_plots.append(p_rf)
+            self._row_plots.append([p_sm, p_rf])
 
             if response_data is not None and len(response_data) > 0:
                 x_resp = (
@@ -446,7 +440,7 @@ class ResultsPlotDialog(QDialog):
                     if response_x is not None
                     else np.arange(len(response_data))
                 )
-                p_rf.plot(x_resp, response_data, pen=pg.mkPen(color, width=2))
+                p_rf.plot(x_resp, response_data, pen=pg.mkPen(DEFAULT_COLOR, width=2))
                 # Tight x-limits around the data
                 x_min = float(np.nanmin(x_resp))
                 x_max = float(np.nanmax(x_resp))
@@ -461,10 +455,6 @@ class ResultsPlotDialog(QDialog):
                     else:
                         p_rf.setXRange(x_min, x_max, padding=0)
 
-        # Set win to exactly fill the viewport — no empty space, no extra scroll
-        win_height = sum(row_heights) + max(num_plots - 1, 0) * SPACING + MARGINS
-        self.win.setMinimumHeight(win_height)
-        self.win.setMaximumHeight(win_height)
         self.win.ci.layout.setColumnStretchFactor(0, 3)
         self.win.ci.layout.setColumnStretchFactor(1, 1)
 
@@ -483,6 +473,87 @@ class ResultsPlotDialog(QDialog):
                     ax = p.getAxis("bottom")
                     ax.setStyle(showValues=False)
                     ax.setHeight(0)
+
+        self._apply_row_heights()
+
+
+def _round_to_target(float_vals, target):
+    """Round non-negative floats to integers summing to ``target`` (largest remainder)."""
+    floors = [int(np.floor(v)) for v in float_vals]
+    remainder = int(target) - sum(floors)
+    if remainder > 0:
+        order = sorted(
+            range(len(float_vals)),
+            key=lambda i: float_vals[i] - floors[i],
+            reverse=True,
+        )
+        for i in order[:remainder]:
+            floors[i] += 1
+    elif remainder < 0:
+        order = sorted(
+            range(len(float_vals)),
+            key=lambda i: float_vals[i] - floors[i],
+        )
+        for i in order[:-remainder]:
+            if floors[i] > 1:
+                floors[i] -= 1
+    return floors
+
+
+def calculate_subplot_heights(
+    ranges,
+    available_height,
+    title_overhead=32,
+    bottom_axis_overhead=20,
+    spacing=10,
+    min_row_height=45,
+):
+    """Calculate integer pixel heights for stacked subplots with equal vertical scale.
+
+    Each row receives ``title_overhead`` (plus ``bottom_axis_overhead`` for the
+    bottom subplot, which displays the shared x-axis) plus data height
+    proportional to its y-range so all subplots share the same pixels-per-unit
+    scale while filling ``available_height`` exactly.
+    """
+    n = len(ranges)
+    if n == 0:
+        return []
+
+    total_spacing = max(n - 1, 0) * spacing
+    target_rows_h = int(round(available_height)) - total_spacing
+    if target_rows_h <= 0:
+        return [1] * n
+
+    overheads = [title_overhead] * (n - 1) + [title_overhead + bottom_axis_overhead]
+    min_heights = [max(oh + 10, min_row_height) for oh in overheads]
+
+    if target_rows_h <= sum(min_heights):
+        total_min = sum(min_heights)
+        scale = target_rows_h / total_min
+        raw = [max(1.0, mh * scale) for mh in min_heights]
+        return _round_to_target(raw, max(target_rows_h, n))
+
+    clean_ranges = [float(r) if (np.isfinite(r) and r > 0) else 0.001 for r in ranges]
+
+    fixed = {}
+    while True:
+        free = [i for i in range(n) if i not in fixed]
+        rem_h = target_rows_h - sum(fixed.values()) - sum(overheads[i] for i in free)
+        rem_range = sum(clean_ranges[i] for i in free)
+        ppu = rem_h / rem_range if rem_range > 0 else 0.0
+        newly_fixed = False
+        for i in free:
+            if overheads[i] + clean_ranges[i] * ppu < min_heights[i]:
+                fixed[i] = float(min_heights[i])
+                newly_fixed = True
+        if not newly_fixed:
+            float_heights = [
+                fixed[i] if i in fixed else overheads[i] + clean_ranges[i] * ppu
+                for i in range(n)
+            ]
+            break
+
+    return _round_to_target(float_heights, target_rows_h)
 
 
 def get_stats(series):

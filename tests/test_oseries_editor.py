@@ -116,3 +116,109 @@ class TestOseriesEditorSaveButton:
                 assert SeriesEditorDialog is OseriesEditorDialog
             except ModuleNotFoundError:
                 pass
+
+    def test_open_oseries_editor_preserves_selection_on_save(self, monkeypatch):
+        """Saving edits in open_oseries_editor keeps the oseries selected after refresh."""
+        try:
+            import pastastore_viewer.pastastore_viewer as pv_mod
+        except ImportError:
+            import pastastore_viewer as pv_mod
+
+        idx = pd.date_range("2020-01-01", periods=3, freq="D")
+        orig = pd.Series([1.0, 2.0, 3.0], index=idx)
+        edited = pd.Series([1.0, 9.0, 3.0], index=idx)
+
+        fake_dlg = MagicMock()
+        fake_dlg.exec.return_value = True
+        fake_dlg.get_modified_series.return_value = edited
+        monkeypatch.setattr(pv_mod, "OseriesEditorDialog", lambda *a, **kw: fake_dlg)
+
+        viewer = pv_mod.PastastoreViewer.__new__(pv_mod.PastastoreViewer)
+        viewer.iface = MagicMock()
+        viewer.store = MagicMock()
+        viewer.store.get_oseries.return_value = orig
+        viewer.store.oseries = pd.DataFrame({"x": [1.0]}, index=["obs1"])
+        viewer._add_oseries_to_store = MagicMock()
+        viewer.mark_store_modified = MagicMock()
+        viewer._push_message = MagicMock()
+
+        dock = MagicMock()
+        dock.get_selected_names.return_value = ["obs1"]
+        dock.tabs.currentIndex.return_value = 0
+        viewer.dock_widget = dock
+
+        viewer.open_oseries_editor("obs1")
+
+        dock.populate_lists.assert_called_once_with(viewer.store)
+        dock.select_items_in_list.assert_called_once_with(
+            "oseries", ["obs1"], switch_tab=False, trigger_signal=True
+        )
+
+    def test_open_stress_editor_preserves_selection_on_save(self, monkeypatch):
+        """Saving edits in open_stress_editor keeps the stress selected after refresh."""
+        try:
+            import pastastore_viewer.pastastore_viewer as pv_mod
+        except ImportError:
+            import pastastore_viewer as pv_mod
+
+        idx = pd.date_range("2020-01-01", periods=3, freq="D")
+        orig = pd.Series([1.0, 2.0, 3.0], index=idx)
+        edited = pd.Series([1.0, 4.0, 3.0], index=idx)
+
+        fake_dlg = MagicMock()
+        fake_dlg.exec.return_value = True
+        fake_dlg.get_modified_series.return_value = edited
+        monkeypatch.setattr(pv_mod, "OseriesEditorDialog", lambda *a, **kw: fake_dlg)
+
+        viewer = pv_mod.PastastoreViewer.__new__(pv_mod.PastastoreViewer)
+        viewer.iface = MagicMock()
+        viewer.store = MagicMock()
+        viewer.store.get_stresses.return_value = orig
+        viewer.store.stresses = pd.DataFrame({"kind": ["prec"]}, index=["prec1"])
+        viewer._add_stress_to_store = MagicMock()
+        viewer.mark_store_modified = MagicMock()
+        viewer._push_message = MagicMock()
+
+        dock = MagicMock()
+        dock.get_selected_names.return_value = ["prec1"]
+        dock.tabs.currentIndex.return_value = 1
+        viewer.dock_widget = dock
+
+        viewer.open_stress_editor("prec1")
+
+        dock.populate_lists.assert_called_once_with(viewer.store)
+        dock.select_items_in_list.assert_called_once_with(
+            "stresses", ["prec1"], switch_tab=False, trigger_signal=True
+        )
+
+
+@pytest.mark.unit
+def test_rows_to_ranges_coalesces_contiguous_rows():
+    from oseries_editor import _rows_to_ranges
+
+    assert _rows_to_ranges([]) == []
+    assert _rows_to_ranges([5]) == [(5, 5)]
+    assert _rows_to_ranges([1, 2, 3, 4]) == [(1, 4)]
+    assert _rows_to_ranges([0, 1, 2, 7, 8, 15]) == [(0, 2), (7, 8), (15, 15)]
+
+
+@pytest.mark.unit
+def test_downsample_xy_for_scatter_preserves_extremes():
+    from oseries_editor import _downsample_xy_for_scatter
+
+    x = np.arange(100, dtype=np.int64)
+    y = np.zeros(100, dtype=np.float64)
+    # Small input is returned unchanged
+    sx, sy = _downsample_xy_for_scatter(x, y, max_points=200)
+    assert len(sx) == 100
+
+    # Large input preserves spikes/outliers while capping point count
+    n = 20000
+    x_big = np.arange(n, dtype=np.int64)
+    y_big = np.sin(np.linspace(0, 20, n))
+    y_big[5432] = 999.0
+    y_big[12345] = -888.0
+    sx, sy = _downsample_xy_for_scatter(x_big, y_big, max_points=1000)
+    assert len(sx) <= 1002
+    assert 999.0 in sy
+    assert -888.0 in sy

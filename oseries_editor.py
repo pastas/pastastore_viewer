@@ -1,10 +1,17 @@
+# -*- coding: utf-8 -*-
 import numpy as np
 import pandas as pd
 from qgis.core import QgsApplication
-from qgis.PyQt.QtCore import QDateTime, QItemSelectionModel, QRectF, Qt
+from qgis.PyQt.QtCore import (
+    QAbstractTableModel,
+    QDateTime,
+    QItemSelection,
+    QItemSelectionModel,
+    QModelIndex,
+    QRectF,
+    Qt,
+)
 from qgis.PyQt.QtGui import QColor, QPen
-
-# -*- coding: utf-8 -*-
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
     QAction,
@@ -17,8 +24,7 @@ from qgis.PyQt.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
-    QTableWidget,
-    QTableWidgetItem,
+    QTableView,
     QVBoxLayout,
 )
 
@@ -35,6 +41,247 @@ try:
     HAS_PYQTGRAPH = True
 except ImportError:
     HAS_PYQTGRAPH = False
+
+
+_TableModelBase = (
+    QAbstractTableModel if isinstance(QAbstractTableModel, type) else object
+)
+
+
+def _format_scalar_value(value):
+    """Format a scalar measurement value safely for display."""
+    if isinstance(value, pd.Series):
+        if not value.empty:
+            value = value.iloc[0]
+    elif isinstance(value, (np.ndarray, list, tuple)):
+        if len(value) > 0:
+            value = value[0]
+
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _rows_to_ranges(rows):
+    """Convert sorted integer row indices into inclusive (start, end) ranges."""
+    if len(rows) == 0:
+        return []
+    arr = np.asarray(rows, dtype=np.int64)
+    breaks = np.flatnonzero(np.diff(arr) != 1)
+    starts = np.r_[0, breaks + 1]
+    ends = np.r_[breaks, len(arr) - 1]
+    return [(int(arr[s]), int(arr[e])) for s, e in zip(starts, ends)]
+
+
+def _downsample_xy_for_scatter(x, y, max_points=5000):
+    """Return (x, y) keeping all points when len <= max_points, else min/max per bin.
+
+    Preserves local extremes (outliers/peaks) in O(N) vectorized NumPy time so
+    scatter rendering stays interactive even for 100k+ measurements.
+    """
+    n = len(x)
+    if n <= max_points or max_points < 2:
+        return x, y
+
+    n_bins = max_points // 2
+    bin_size = n // n_bins
+    usable = bin_size * n_bins
+    y_2d = y[:usable].reshape(n_bins, bin_size)
+    offsets = np.arange(n_bins, dtype=np.int64) * bin_size
+    min_idx = offsets + np.argmin(y_2d, axis=1)
+    max_idx = offsets + np.argmax(y_2d, axis=1)
+
+    idx = np.empty(n_bins * 2, dtype=np.int64)
+    idx[0::2] = np.minimum(min_idx, max_idx)
+    idx[1::2] = np.maximum(min_idx, max_idx)
+
+    if usable < n:
+        tail_y = y[usable:]
+        t_min = usable + int(np.argmin(tail_y))
+        t_max = usable + int(np.argmax(tail_y))
+        idx = np.concatenate([idx, [min(t_min, t_max), max(t_min, t_max)]])
+
+    return x[idx], y[idx]
+
+
+class SeriesTableModel(_TableModelBase):
+    """Virtual table model backed directly by pandas Index and NumPy arrays.
+
+    Avoids allocating O(N) QTableWidgetItems so opening, sorting, selecting, and
+    editing series with 100k+ measurements remains instantaneous.
+    """
+
+    def __init__(self, on_value_edited=None, on_after_sort=None, parent=None):
+        if _TableModelBase is not object:
+            super().__init__(parent)
+        self._index = pd.Index([])
+        self._values = np.array([], dtype=float)
+        self._order = np.array([], dtype=np.int64)
+        self._inv_order = np.array([], dtype=np.int64)
+        self._sort_column = 0
+        self._sort_ascending = True
+        self._on_value_edited = on_value_edited
+        self._on_after_sort = on_after_sort
+
+    def set_data(self, index, values):
+        """Replace underlying valid-data arrays and apply current sort order."""
+        if _TableModelBase is not object:
+            self.beginResetModel()
+        self._index = index
+        self._values = np.asarray(values)
+        self._rebuild_order()
+        if _TableModelBase is not object:
+            self.endResetModel()
+
+    def _rebuild_order(self):
+        n = len(self._index)
+        if n == 0:
+            self._order = np.array([], dtype=np.int64)
+            self._inv_order = np.array([], dtype=np.int64)
+            return
+
+        if self._sort_column == 0:
+            if self._index.is_monotonic_increasing:
+                order = (
+                    np.arange(n, dtype=np.int64)
+                    if self._sort_ascending
+                    else np.arange(n - 1, -1, -1, dtype=np.int64)
+                )
+            else:
+                order = np.argsort(self._index.to_numpy(), kind="mergesort").astype(
+                    np.int64
+                )
+                if not self._sort_ascending:
+                    order = order[::-1].copy()
+        else:
+            order = np.argsort(self._values, kind="mergesort").astype(np.int64)
+            if not self._sort_ascending:
+                order = order[::-1].copy()
+
+        self._order = order
+        inv = np.empty(n, dtype=np.int64)
+        inv[order] = np.arange(n, dtype=np.int64)
+        self._inv_order = inv
+
+    def rowCount(self, parent=None):
+        if parent is not None and parent.isValid():
+            return 0
+        return len(self._order)
+
+    def columnCount(self, parent=None):
+        if parent is not None and parent.isValid():
+            return 0
+        return 2
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if (
+            role == Qt.ItemDataRole.DisplayRole
+            and orientation == Qt.Orientation.Horizontal
+        ):
+            return "DateTime" if section == 0 else "Value"
+        return None
+
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid():
+            return None
+        row = index.row()
+        if row < 0 or row >= len(self._order):
+            return None
+        pos = int(self._order[row])
+        col = index.column()
+
+        if col == 0:
+            if role == Qt.ItemDataRole.DisplayRole:
+                ts = self._index[pos]
+                if isinstance(ts, pd.Timestamp):
+                    return ts.strftime("%Y-%m-%d %H:%M:%S")
+                return str(ts)
+            if role == Qt.ItemDataRole.UserRole:
+                return self._index[pos]
+            return None
+
+        if col == 1:
+            if role in (Qt.ItemDataRole.DisplayRole, Qt.ItemDataRole.EditRole):
+                return _format_scalar_value(self._values[pos])
+            if role == Qt.ItemDataRole.UserRole:
+                return float(self._values[pos])
+        return None
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.ItemFlag.NoItemFlags
+        base = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if index.column() == 1:
+            return base | Qt.ItemFlag.ItemIsEditable
+        return base
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        if (
+            not index.isValid()
+            or index.column() != 1
+            or role != Qt.ItemDataRole.EditRole
+        ):
+            return False
+        try:
+            val = float(value)
+        except (TypeError, ValueError):
+            return False
+
+        row = index.row()
+        if row < 0 or row >= len(self._order):
+            return False
+        pos = int(self._order[row])
+        self._values[pos] = val
+        if _TableModelBase is not object:
+            self.dataChanged.emit(index, index)
+        if self._on_value_edited is not None:
+            self._on_value_edited(pos, val)
+        return True
+
+    def sort(self, column, order=Qt.SortOrder.AscendingOrder):
+        self._sort_column = column
+        self._sort_ascending = order == Qt.SortOrder.AscendingOrder
+        if _TableModelBase is not object:
+            self.layoutAboutToBeChanged.emit()
+        self._rebuild_order()
+        if _TableModelBase is not object:
+            self.layoutChanged.emit()
+        if self._on_after_sort is not None:
+            self._on_after_sort()
+
+    def update_value_at_plot_pos(self, pos, value):
+        """Update a single value in place without resetting the model."""
+        if pos < 0 or pos >= len(self._values):
+            return
+        self._values[pos] = value
+        if _TableModelBase is not object:
+            row = int(self._inv_order[pos])
+            idx = self.index(row, 1)
+            self.dataChanged.emit(idx, idx)
+
+    def plot_positions_for_rows(self, rows):
+        """Map table row indices to underlying valid-data / plot positions."""
+        if len(rows) == 0 or len(self._order) == 0:
+            return np.array([], dtype=np.int64)
+        return self._order[rows]
+
+    def rows_for_plot_mask(self, mask):
+        """Map boolean mask over valid-data / plot positions to sorted table rows."""
+        if len(self._inv_order) == 0 or mask is None or not np.any(mask):
+            return np.array([], dtype=np.int64)
+        rows = self._inv_order[mask]
+        if len(rows) > 1:
+            rows = np.sort(rows)
+        return rows
+
+    def timestamp_at_row(self, row):
+        pos = int(self._order[row])
+        return self._index[pos]
+
+    def value_at_row(self, row):
+        pos = int(self._order[row])
+        return float(self._values[pos])
 
 
 class SelectionViewBox(pg.ViewBox):
@@ -101,6 +348,8 @@ class SelectionViewBox(pg.ViewBox):
 class OseriesEditorDialog(QDialog):
     """Dialog for editing observation series data."""
 
+    MAX_SCATTER_POINTS = 5000
+
     def __init__(self, oseries_name, series_data, parent=None, series_type="oseries"):
         super(OseriesEditorDialog, self).__init__(parent)
         self.oseries_name = oseries_name
@@ -109,11 +358,17 @@ class OseriesEditorDialog(QDialog):
         self.original_data = coerced_series.copy()
         self.series_data = coerced_series.copy()
         self.selected_points = []
+        self._valid_positions = np.array([], dtype=np.int64)
         self._plot_x = None
         self._plot_y = None
+        self._plot_x_sorted = True
         self._plot_index = None
         self._selected_mask = None
         self._syncing_selection = False
+        self._scatter_shows_all = False
+        self.line_plot = None
+        self.scatter_plot = None
+        self.selected_scatter = None
 
         type_title = "Stress" if series_type == "stress" else "Oseries"
         self.setWindowTitle(f"Edit {type_title}: {oseries_name}")
@@ -121,8 +376,7 @@ class OseriesEditorDialog(QDialog):
         self.resize(1200, 700)
 
         self.setup_ui()
-        self.populate_table()
-        self.plot_data()
+        self._refresh_all(reset_view=True)
         self.update_save_button_state()
 
     def _coerce_series(self, series_data):
@@ -141,17 +395,15 @@ class OseriesEditorDialog(QDialog):
 
     def _format_value(self, value):
         """Format a value safely for display in the table."""
-        if isinstance(value, pd.Series):
-            if not value.empty:
-                value = value.iloc[0]
-        elif isinstance(value, (np.ndarray, list, tuple)):
-            if len(value) > 0:
-                value = value[0]
+        return _format_scalar_value(value)
 
-        try:
-            return f"{float(value):.4f}"
-        except (TypeError, ValueError):
-            return str(value)
+    def _ensure_float_series(self):
+        """Ensure numeric series_data can hold float values and NaN cleanly."""
+        if not pd.api.types.is_float_dtype(self.series_data.dtype):
+            try:
+                self.series_data = self.series_data.astype(float)
+            except (TypeError, ValueError):
+                pass
 
     def setup_ui(self):
         layout = QVBoxLayout()
@@ -232,27 +484,64 @@ class OseriesEditorDialog(QDialog):
                 else "Oseries"
             )
             self.plot_widget.setTitle(f"{type_title}: {self.oseries_name}", color="k")
+
+            # Reusable plot items updated in-place via setData()
+            self.line_plot = self.plot_widget.plot(
+                [], [], pen=pg.mkPen("#1f77b4", width=1), connect="finite"
+            )
+            self.line_plot.setDownsampling(auto=True, method="peak")
+            self.line_plot.setClipToView(True)
+
+            self.scatter_plot = pg.ScatterPlotItem(
+                x=[],
+                y=[],
+                size=7,
+                pen=pg.mkPen(None),
+                brush=pg.mkBrush(31, 119, 180, 120),
+                symbol="o",
+                pxMode=True,
+            )
+            self.plot_widget.addItem(self.scatter_plot)
+
+            self.selected_scatter = pg.ScatterPlotItem(
+                x=[],
+                y=[],
+                size=8,
+                pen=pg.mkPen(None),
+                brush=pg.mkBrush(255, 165, 0, 210),
+                symbol="o",
+                pxMode=True,
+            )
+            self.selected_scatter.setZValue(10)
+            self.plot_widget.addItem(self.selected_scatter)
+
+            self.view_box.sigXRangeChanged.connect(self._update_visible_scatter)
             splitter.addWidget(self.plot_widget)
 
-            # Enable point selection
-            self.scatter_plot = None
-
-        # Table widget
-        self.table = QTableWidget()
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["DateTime", "Value"])
+        # Virtual table view backed by SeriesTableModel
+        self.table_model = SeriesTableModel(
+            on_value_edited=self._on_model_value_edited,
+            on_after_sort=self._on_table_sorted,
+            parent=self,
+        )
+        self.table = QTableView()
+        self.table.setModel(self.table_model)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(22)
         self.table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive
         )
-        self.table.setColumnWidth(0, 120)
+        self.table.setColumnWidth(0, 130)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setSortingEnabled(True)
+        self.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._show_table_context_menu)
-        self.table.itemSelectionChanged.connect(self._on_table_selection_changed)
-        self.table.itemChanged.connect(self._on_table_item_changed)
+        if self.table.selectionModel() is not None:
+            self.table.selectionModel().selectionChanged.connect(
+                self._on_table_selection_changed
+            )
         self.table.setMinimumWidth(0)
         splitter.addWidget(self.table)
 
@@ -286,111 +575,194 @@ class OseriesEditorDialog(QDialog):
         self.update_save_button_state()
         self._update_modify_button_state()
 
+    def _sync_valid_data(self):
+        """Extract non-NaN positions, index, epoch-x, and y arrays once."""
+        notna_mask = self.series_data.notna().to_numpy()
+        self._valid_positions = np.flatnonzero(notna_mask)
+
+        if len(self._valid_positions) == 0:
+            self._plot_index = self.series_data.index[:0]
+            self._plot_x = np.array([], dtype=np.float64)
+            self._plot_y = np.array([], dtype=np.float64)
+            self._plot_x_sorted = True
+            self._selected_mask = np.zeros(0, dtype=bool)
+            return
+
+        self._plot_index = self.series_data.index[self._valid_positions]
+        if pd.api.types.is_datetime64_any_dtype(self._plot_index):
+            self._plot_x = (
+                self._plot_index.astype("datetime64[s]").astype(np.int64).to_numpy()
+            )
+        else:
+            self._plot_x = np.asarray(self._plot_index)
+
+        raw_y = self.series_data.to_numpy()[self._valid_positions]
+        try:
+            self._plot_y = np.asarray(raw_y, dtype=np.float64)
+        except (TypeError, ValueError):
+            self._plot_y = np.asarray(raw_y)
+
+        self._plot_x_sorted = bool(
+            len(self._plot_x) < 2 or np.all(self._plot_x[:-1] <= self._plot_x[1:])
+        )
+        self._selected_mask = np.zeros(len(self._valid_positions), dtype=bool)
+
+    def _refresh_all(self, reset_view=False):
+        """Refresh cached arrays, virtual table model, and plot items in one pass."""
+        self._sync_valid_data()
+        self._syncing_selection = True
+        try:
+            self.table_model.set_data(self._plot_index, self._plot_y.copy())
+        finally:
+            self._syncing_selection = False
+        self._update_plot_items(reset_view=reset_view)
+        self._update_modify_button_state()
+
     def update_save_button_state(self):
         """Update the enabled state of the Save button based on unsaved changes."""
         if hasattr(self, "btn_save"):
             self.btn_save.setEnabled(self._has_unsaved_changes())
 
+    def _get_selected_table_rows(self):
+        """Return sorted 1D array of selected visual row indices."""
+        sel_model = self.table.selectionModel()
+        if sel_model is None:
+            return np.array([], dtype=np.int64)
+        ranges = sel_model.selection()
+        if not ranges:
+            return np.array([], dtype=np.int64)
+        chunks = [
+            np.arange(r.top(), r.bottom() + 1, dtype=np.int64) for r in ranges
+        ]
+        if len(chunks) == 1:
+            return chunks[0]
+        return np.unique(np.concatenate(chunks))
+
+    def _get_selected_row_count(self):
+        """Return number of selected rows without allocating full arrays for single ranges."""
+        sel_model = self.table.selectionModel()
+        if sel_model is None:
+            return 0
+        ranges = sel_model.selection()
+        if not ranges:
+            return 0
+        if len(ranges) == 1:
+            return ranges[0].bottom() - ranges[0].top() + 1
+        return len(self._get_selected_table_rows())
+
+    def _get_selected_plot_positions(self):
+        """Return underlying valid-data indices corresponding to selected table rows."""
+        rows = self._get_selected_table_rows()
+        if len(rows) == 0:
+            return np.array([], dtype=np.int64)
+        return self.table_model.plot_positions_for_rows(rows)
+
     def _update_modify_button_state(self):
         """Enable 'Modify Selected Point' button only if exactly one point is selected."""
         if hasattr(self, "btn_modify"):
-            selected_rows = set(item.row() for item in self.table.selectedItems())
-            self.btn_modify.setEnabled(len(selected_rows) == 1)
+            self.btn_modify.setEnabled(self._get_selected_row_count() == 1)
 
     def clear_selection(self):
         """Clear point selection in table and plot."""
-        self.table.clearSelection()
+        self._syncing_selection = True
+        try:
+            self.table.clearSelection()
+        finally:
+            self._syncing_selection = False
         if self._plot_index is not None:
             self._selected_mask = np.zeros(len(self._plot_index), dtype=bool)
             self._update_plot_selection()
         self._update_modify_button_state()
 
-    def _on_table_item_changed(self, item):
-        if item is None or item.column() != 1:
-            return
-        row = item.row()
-        ts_item = self.table.item(row, 0)
-        if ts_item is None:
-            return
-        timestamp = ts_item.data(Qt.ItemDataRole.UserRole)
-        if timestamp is None:
-            return
-        try:
-            val = float(item.text())
-            self.series_data.loc[timestamp] = val
-            self.plot_data()
-            self.update_save_button_state()
-        except ValueError:
-            pass
+    def _on_model_value_edited(self, pos, val):
+        """Handle inline edit in Value column in O(1) without rebuilding table/plot."""
+        self._ensure_float_series()
+        self.series_data.iloc[self._valid_positions[pos]] = val
+        if self._plot_y is not None and pos < len(self._plot_y):
+            self._plot_y[pos] = val
+            self._update_plot_items(reset_view=False)
+            self._update_plot_selection()
+        self.update_save_button_state()
+
+    def _on_table_sorted(self):
+        """Keep visual selection synced with the selected measurements after sorting."""
+        if self._selected_mask is not None and np.any(self._selected_mask):
+            self._select_table_rows_from_mask(scroll=False)
 
     def populate_table(self):
-        """Populate table with series data."""
-        self.table.blockSignals(True)
-        self.table.setSortingEnabled(False)
-        self.table.setRowCount(0)
-
-        # Get non-NaN values
-        valid_data = self.series_data.dropna()
-
-        self.table.setRowCount(len(valid_data))
-        for i, (timestamp, value) in enumerate(valid_data.items()):
-            # DateTime
-            if isinstance(timestamp, pd.Timestamp):
-                dt_text = timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                dt_text = str(timestamp)
-            dt_item = QTableWidgetItem(dt_text)
-            dt_item.setData(Qt.ItemDataRole.UserRole, timestamp)
-            dt_item.setFlags(dt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(i, 0, dt_item)
-
-            # Value - format safely to handle unexpected value containers
-            val_item = QTableWidgetItem(self._format_value(value))
-            self.table.setItem(i, 1, val_item)
-
-        self.table.setSortingEnabled(True)
-        self.table.blockSignals(False)
+        """Populate virtual table model with series data."""
+        self._sync_valid_data()
+        self._syncing_selection = True
+        try:
+            self.table_model.set_data(self._plot_index, self._plot_y.copy())
+        finally:
+            self._syncing_selection = False
         self._update_modify_button_state()
 
     def plot_data(self):
-        """Plot the time series data."""
+        """Update the time series plot."""
         if not HAS_PYQTGRAPH:
             return
+        if self._plot_x is None:
+            self._sync_valid_data()
+        self._update_plot_items(reset_view=False)
 
-        self.plot_widget.clear()
-
-        # Get valid data
-        valid_data = self.series_data.dropna()
-        if valid_data.empty:
+    def _update_plot_items(self, reset_view=False):
+        """Update reusable curve and scatter items in place."""
+        if not HAS_PYQTGRAPH or self.line_plot is None:
             return
 
-        # Prepare data
-        x = valid_data.index
-        if pd.api.types.is_datetime64_any_dtype(x):
-            x = x.astype("datetime64[s]").astype(np.int64)
-        y = valid_data.values
+        self._scatter_shows_all = False
+        if self._plot_x is None or len(self._plot_x) == 0:
+            self.line_plot.setData([], [])
+            self.scatter_plot.setData([], [])
+            self.selected_scatter.setData([], [])
+            return
 
-        self._plot_x = np.array(x)
-        self._plot_y = np.array(y)
-        self._plot_index = valid_data.index
-        self._selected_mask = np.zeros(len(valid_data), dtype=bool)
+        self.line_plot.setData(self._plot_x, self._plot_y, skipFiniteCheck=True)
+        if reset_view:
+            self.fit_plot()
+        self._update_visible_scatter()
+        self._update_plot_selection()
 
-        # Plot as scatter for easier selection
-        self.scatter_plot = pg.ScatterPlotItem(
-            x=x,
-            y=y,
-            size=8,
-            pen=pg.mkPen(None),
-            brush=pg.mkBrush(0, 0, 255, 120),
-            symbol="o",
+    def _update_visible_scatter(self):
+        """Render scatter dots for visible points, peak-downsampling when zoomed out."""
+        if not HAS_PYQTGRAPH or self.scatter_plot is None:
+            return
+        if self._plot_x is None or len(self._plot_x) == 0:
+            self.scatter_plot.setData([], [])
+            return
+
+        n = len(self._plot_x)
+        if n <= self.MAX_SCATTER_POINTS:
+            if not self._scatter_shows_all:
+                self.scatter_plot.setData(x=self._plot_x, y=self._plot_y)
+                self._scatter_shows_all = True
+            return
+
+        self._scatter_shows_all = False
+        xmin, xmax = self.view_box.viewRange()[0]
+        if self._plot_x_sorted:
+            lo = int(np.searchsorted(self._plot_x, xmin, side="left"))
+            hi = int(np.searchsorted(self._plot_x, xmax, side="right"))
+            vis_x = self._plot_x[lo:hi]
+            vis_y = self._plot_y[lo:hi]
+        else:
+            vis_mask = (self._plot_x >= xmin) & (self._plot_x <= xmax)
+            vis_x = self._plot_x[vis_mask]
+            vis_y = self._plot_y[vis_mask]
+
+        if len(vis_x) == 0:
+            self.scatter_plot.setData([], [])
+            return
+
+        sx, sy = _downsample_xy_for_scatter(
+            vis_x, vis_y, max_points=self.MAX_SCATTER_POINTS
         )
-        self.plot_widget.addItem(self.scatter_plot)
-
-        # Also add line
-        self.plot_widget.plot(x, y, pen=pg.mkPen("b", width=1), connect="finite")
+        self.scatter_plot.setData(x=sx, y=sy)
 
     def _on_rect_selected(self, xmin, xmax, ymin, ymax):
-        if self._plot_x is None or self._plot_y is None:
+        if self._plot_x is None or self._plot_y is None or len(self._plot_x) == 0:
             return
         mask = (
             (self._plot_x >= xmin)
@@ -400,66 +772,79 @@ class OseriesEditorDialog(QDialog):
         )
         self._selected_mask = mask
         self._update_plot_selection()
-        self._select_table_rows_from_mask()
+        self._select_table_rows_from_mask(scroll=True)
 
     def _update_plot_selection(self):
-        if not self.scatter_plot or self._selected_mask is None:
+        """Highlight only the selected points via dedicated overlay scatter item."""
+        if not HAS_PYQTGRAPH or self.selected_scatter is None:
             return
-        default_brush = pg.mkBrush(0, 0, 255, 120)
-        selected_brush = pg.mkBrush(255, 165, 0, 180)
-        brushes = [
-            selected_brush if sel else default_brush for sel in self._selected_mask
-        ]
-        self.scatter_plot.setBrush(brushes)
+        if (
+            self._plot_x is None
+            or self._selected_mask is None
+            or not np.any(self._selected_mask)
+        ):
+            self.selected_scatter.setData([], [])
+            return
 
-    def _select_table_rows_from_mask(self):
+        sel_x = self._plot_x[self._selected_mask]
+        sel_y = self._plot_y[self._selected_mask]
+        sx, sy = _downsample_xy_for_scatter(
+            sel_x, sel_y, max_points=self.MAX_SCATTER_POINTS
+        )
+        self.selected_scatter.setData(x=sx, y=sy)
+
+    def _select_table_rows(self, rows, scroll_hint=None):
+        """Apply selection to table in one batched QItemSelection call."""
+        selection_model = self.table.selectionModel()
+        if selection_model is None:
+            return
+
+        self._syncing_selection = True
+        try:
+            if len(rows) == 0:
+                selection_model.clearSelection()
+                return
+
+            selection = QItemSelection()
+            last_col = self.table_model.columnCount() - 1
+            for start_row, end_row in _rows_to_ranges(rows):
+                top_left = self.table_model.index(start_row, 0)
+                bottom_right = self.table_model.index(end_row, last_col)
+                selection.select(top_left, bottom_right)
+
+            selection_model.select(
+                selection,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+            if scroll_hint is not None:
+                first_index = self.table_model.index(int(rows[0]), 0)
+                self.table.scrollTo(first_index, scroll_hint)
+        finally:
+            self._syncing_selection = False
+            self._update_modify_button_state()
+
+    def _select_table_rows_from_mask(self, scroll=True):
         if self._plot_index is None or self._selected_mask is None:
             return
         if self._syncing_selection:
             return
-        selected_times = set(self._plot_index[self._selected_mask])
-        first_selected_item = None
-        self._syncing_selection = True
-        self.table.blockSignals(True)
-        try:
-            self.table.clearSelection()
-            selection_model = self.table.selectionModel()
-            for row in range(self.table.rowCount()):
-                item = self.table.item(row, 0)
-                if item and item.data(Qt.ItemDataRole.UserRole) in selected_times:
-                    if first_selected_item is None:
-                        first_selected_item = item
-                    index = self.table.model().index(row, 0)
-                    selection_model.select(
-                        index,
-                        QItemSelectionModel.SelectionFlag.Select
-                        | QItemSelectionModel.SelectionFlag.Rows,
-                    )
-            if first_selected_item is not None:
-                self.table.scrollToItem(
-                    first_selected_item, QAbstractItemView.ScrollHint.PositionAtCenter
-                )
-        finally:
-            self.table.blockSignals(False)
-            self._syncing_selection = False
-            self._update_modify_button_state()
+        rows = self.table_model.rows_for_plot_mask(self._selected_mask)
+        hint = QAbstractItemView.ScrollHint.PositionAtCenter if scroll else None
+        self._select_table_rows(rows, scroll_hint=hint)
 
-    def _on_table_selection_changed(self):
+    def _on_table_selection_changed(self, *_args):
         if self._syncing_selection:
             return
         if self._plot_index is None:
             self._update_modify_button_state()
             return
-        selected_rows = sorted(set(item.row() for item in self.table.selectedItems()))
-        selected_times = set()
-        for row in selected_rows:
-            item = self.table.item(row, 0)
-            if item:
-                selected_times.add(item.data(Qt.ItemDataRole.UserRole))
 
-        self._selected_mask = np.array(
-            [ts in selected_times for ts in self._plot_index], dtype=bool
-        )
+        plot_positions = self._get_selected_plot_positions()
+        mask = np.zeros(len(self._plot_index), dtype=bool)
+        if len(plot_positions) > 0:
+            mask[plot_positions] = True
+        self._selected_mask = mask
         self._update_plot_selection()
         self._update_modify_button_state()
 
@@ -492,29 +877,26 @@ class OseriesEditorDialog(QDialog):
 
     def remove_selected(self):
         """Remove selected points from the series."""
-        selected_rows = sorted(
-            set(item.row() for item in self.table.selectedItems()), reverse=True
-        )
+        plot_positions = self._get_selected_plot_positions()
 
-        if not selected_rows:
+        if len(plot_positions) == 0:
             QMessageBox.warning(self, "No Selection", "Please select points to remove.")
             return
 
         reply = QMessageBox.question(
             self,
             "Confirm Removal",
-            f"Remove {len(selected_rows)} point(s)?",
+            f"Remove {len(plot_positions)} point(s)?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            for row in selected_rows:
-                timestamp = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-                self.series_data.loc[timestamp] = np.nan
+            self._ensure_float_series()
+            iloc_positions = self._valid_positions[plot_positions]
+            self.series_data.iloc[iloc_positions] = np.nan
 
-            self.populate_table()
-            self.plot_data()
+            self._refresh_all(reset_view=False)
             self.update_save_button_state()
 
     def add_point(self):
@@ -563,19 +945,19 @@ class OseriesEditorDialog(QDialog):
             )
 
             value = value_edit.value()
+            self._ensure_float_series()
             self.series_data.loc[timestamp] = value
             self.series_data = self.series_data.sort_index()
-            self.populate_table()
-            self.plot_data()
+            self._refresh_all(reset_view=False)
+            self._restore_selection_by_timestamps([timestamp])
             self.update_save_button_state()
 
     def add_offset_to_selected(self):
         """Add a value/offset to selected measurements (or all if none selected)."""
-        selected_rows = sorted(set(item.row() for item in self.table.selectedItems()))
+        plot_positions = self._get_selected_plot_positions()
 
-        if not selected_rows:
-            valid_data = self.series_data.dropna()
-            if valid_data.empty:
+        if len(plot_positions) == 0:
+            if len(self._valid_positions) == 0:
                 QMessageBox.warning(
                     self, "No Data", "No measurements available to edit."
                 )
@@ -591,20 +973,9 @@ class OseriesEditorDialog(QDialog):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-            timestamps = list(valid_data.index)
-        else:
-            timestamps = []
-            for row in selected_rows:
-                ts_item = self.table.item(row, 0)
-                if ts_item:
-                    ts = ts_item.data(Qt.ItemDataRole.UserRole)
-                    if ts is not None:
-                        timestamps.append(ts)
+            plot_positions = np.arange(len(self._valid_positions), dtype=np.int64)
 
-        if not timestamps:
-            return
-
-        count = len(timestamps)
+        count = len(plot_positions)
         offset, ok = QInputDialog.getDouble(
             self,
             "Add Offset to Measurements",
@@ -614,57 +985,35 @@ class OseriesEditorDialog(QDialog):
         )
 
         if ok and offset != 0.0:
-            for ts in timestamps:
-                if ts in self.series_data.index:
-                    val = self.series_data.loc[ts]
-                    if isinstance(val, (int, float, np.number)) and not np.isnan(val):
-                        self.series_data.loc[ts] = float(val + offset)
+            self._ensure_float_series()
+            iloc_positions = self._valid_positions[plot_positions]
+            self.series_data.iloc[iloc_positions] = (
+                self.series_data.iloc[iloc_positions].astype(float) + offset
+            )
+            selected_mask = np.zeros(len(self._valid_positions), dtype=bool)
+            selected_mask[plot_positions] = True
 
-            self.populate_table()
-            self.plot_data()
-            self._restore_selection_by_timestamps(timestamps)
+            self._refresh_all(reset_view=False)
+            self._selected_mask = selected_mask
+            self._update_plot_selection()
+            self._select_table_rows_from_mask(scroll=False)
             self.update_save_button_state()
 
     def _restore_selection_by_timestamps(self, timestamps):
         """Restore row selection in table and plot scatter for given timestamps."""
-        if not timestamps:
+        if not timestamps or self._plot_index is None or len(self._plot_index) == 0:
             return
-        target_set = set(timestamps)
-        self._syncing_selection = True
-        self.table.blockSignals(True)
-        try:
-            self.table.clearSelection()
-            selection_model = self.table.selectionModel()
-            first_selected = None
-            for row in range(self.table.rowCount()):
-                item = self.table.item(row, 0)
-                if item and item.data(Qt.ItemDataRole.UserRole) in target_set:
-                    if first_selected is None:
-                        first_selected = item
-                    index = self.table.model().index(row, 0)
-                    selection_model.select(
-                        index,
-                        QItemSelectionModel.SelectionFlag.Select
-                        | QItemSelectionModel.SelectionFlag.Rows,
-                    )
-            if first_selected is not None:
-                self.table.scrollToItem(
-                    first_selected, QAbstractItemView.ScrollHint.EnsureVisible
-                )
-        finally:
-            self.table.blockSignals(False)
-            self._syncing_selection = False
-
-        if self._plot_index is not None:
-            self._selected_mask = np.array(
-                [ts in target_set for ts in self._plot_index], dtype=bool
-            )
-            self._update_plot_selection()
-        self._update_modify_button_state()
+        mask = np.asarray(self._plot_index.isin(timestamps), dtype=bool)
+        self._selected_mask = mask
+        self._update_plot_selection()
+        rows = self.table_model.rows_for_plot_mask(mask)
+        self._select_table_rows(
+            rows, scroll_hint=QAbstractItemView.ScrollHint.EnsureVisible
+        )
 
     def _show_table_context_menu(self, position):
         menu = QMenu(self)
-        selected_rows = sorted(set(item.row() for item in self.table.selectedItems()))
+        selected_count = self._get_selected_row_count()
 
         act_offset = QAction("Add Offset to Selected...", self)
         if hasattr(QgsApplication, "getThemeIcon"):
@@ -675,7 +1024,7 @@ class OseriesEditorDialog(QDialog):
         menu.addAction(act_offset)
 
         act_modify = QAction("Modify Selected Point...", self)
-        act_modify.setEnabled(len(selected_rows) == 1)
+        act_modify.setEnabled(selected_count == 1)
         if hasattr(QgsApplication, "getThemeIcon"):
             icon = QgsApplication.getThemeIcon("/mActionEditTable.svg")
             if not icon.isNull():
@@ -703,9 +1052,9 @@ class OseriesEditorDialog(QDialog):
 
     def modify_selected(self):
         """Modify the value of selected points."""
-        selected_rows = sorted(set(item.row() for item in self.table.selectedItems()))
+        selected_rows = self._get_selected_table_rows()
 
-        if not selected_rows:
+        if len(selected_rows) == 0:
             QMessageBox.warning(self, "No Selection", "Please select points to modify.")
             return
 
@@ -713,11 +1062,15 @@ class OseriesEditorDialog(QDialog):
             self.add_offset_to_selected()
             return
 
-        row = selected_rows[0]
-        timestamp_item = self.table.item(row, 0)
-        timestamp = timestamp_item.data(Qt.ItemDataRole.UserRole)
-        timestamp_str = timestamp_item.text()
-        current_value = float(self.table.item(row, 1).text())
+        row = int(selected_rows[0])
+        pos = int(self.table_model.plot_positions_for_rows(np.array([row]))[0])
+        timestamp = self.table_model.timestamp_at_row(row)
+        timestamp_str = (
+            timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(timestamp, pd.Timestamp)
+            else str(timestamp)
+        )
+        current_value = self.table_model.value_at_row(row)
 
         value, ok = QInputDialog.getDouble(
             self,
@@ -728,10 +1081,12 @@ class OseriesEditorDialog(QDialog):
         )
 
         if ok:
-            self.series_data.loc[timestamp] = value
-            self.populate_table()
-            self.plot_data()
-            self._restore_selection_by_timestamps([timestamp])
+            self._ensure_float_series()
+            self.series_data.iloc[self._valid_positions[pos]] = value
+            self._plot_y[pos] = value
+            self.table_model.update_value_at_plot_pos(pos, value)
+            self._update_plot_items(reset_view=False)
+            self._update_plot_selection()
             self.update_save_button_state()
 
     def reset_data(self):
@@ -746,8 +1101,7 @@ class OseriesEditorDialog(QDialog):
 
         if reply == QMessageBox.StandardButton.Yes:
             self.series_data = self.original_data.copy()
-            self.populate_table()
-            self.plot_data()
+            self._refresh_all(reset_view=True)
             self.update_save_button_state()
 
     def get_modified_series(self):
@@ -761,7 +1115,7 @@ class OseriesEditorDialog(QDialog):
     def keyPressEvent(self, event):
         """Map Delete key to the same behavior as 'Remove Selected Points'."""
         if event.key() == Qt.Key.Key_Delete:
-            if self.table.selectedItems():
+            if self._get_selected_row_count() > 0:
                 self.remove_selected()
                 event.accept()
                 return

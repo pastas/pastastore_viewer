@@ -1,11 +1,66 @@
+import sys
+
+import numpy as np
 from qgis.core import QgsApplication
 from qgis.PyQt.QtCore import QEvent, Qt
+from qgis.PyQt.QtGui import QPainterPath
 from qgis.PyQt.QtWidgets import (
+    QGraphicsPathItem,
     QHBoxLayout,
     QPushButton,
     QSizePolicy,
     QWidget,
 )
+
+
+def create_fill_between_item(pg_mod, x, y_upper, y_lower, brush):
+    """Create a shaded band item between *y_upper* and *y_lower*.
+
+    Uses the exact `PlotDataItem` class bound inside `pg.FillBetweenItem`'s own
+    module so QGIS environments with both site-packages and bundled `pyqtgraph`
+    (or reloaded modules) never fail `isinstance(c, (PlotDataItem, PlotCurveItem))`.
+    Falls back to a QGraphicsPathItem polygon if needed.
+    """
+    x_arr = np.asarray(x, dtype=float)
+    yu_arr = np.asarray(y_upper, dtype=float)
+    yl_arr = np.asarray(y_lower, dtype=float)
+    mask = np.isfinite(x_arr) & np.isfinite(yu_arr) & np.isfinite(yl_arr)
+    x_arr = x_arr[mask]
+    yu_arr = yu_arr[mask]
+    yl_arr = yl_arr[mask]
+    if len(x_arr) < 2:
+        return None
+
+    fill_cls = getattr(pg_mod, "FillBetweenItem", None)
+    if fill_cls is not None:
+        fill_mod = sys.modules.get(getattr(fill_cls, "__module__", ""))
+        curve_cls = (
+            getattr(fill_mod, "PlotDataItem", None)
+            or getattr(fill_mod, "PlotCurveItem", None)
+            or getattr(pg_mod, "PlotDataItem", None)
+        )
+        if curve_cls is not None:
+            try:
+                c1 = curve_cls(x_arr, yu_arr)
+                c2 = curve_cls(x_arr, yl_arr)
+                return fill_cls(c1, c2, brush=brush)
+            except TypeError:
+                pass
+
+    # Fallback: direct closed QPainterPath polygon
+    path = QPainterPath()
+    path.moveTo(float(x_arr[0]), float(yu_arr[0]))
+    for xi, yi in zip(x_arr[1:], yu_arr[1:]):
+        path.lineTo(float(xi), float(yi))
+    for xi, yi in zip(x_arr[::-1], yl_arr[::-1]):
+        path.lineTo(float(xi), float(yi))
+    path.closeSubpath()
+
+    item = QGraphicsPathItem(path)
+    item.setBrush(brush)
+    item.setPen(pg_mod.mkPen(None))
+    item.setZValue(-10)
+    return item
 
 
 class PlotNavigationWidget(QWidget):

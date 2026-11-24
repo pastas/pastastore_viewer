@@ -722,12 +722,162 @@ Even geduld.</translation>
         <translation>Upgrade naar Pro om modellen op te lossen</translation>
     </message>
     <message>
-        <source>Period:</source>
-        <translation>Periode:</translation>
+        <source>First value:</source>
+        <translation>Eerste waarde:</translation>
     </message>
     <message>
-        <source>{}: (no data)</source>
-        <translation>{}: (geen data)</translation>
+        <source>Last value:</source>
+        <translation>Laatste waarde:</translation>
+    </message>
+
+    <!-- Model analysis: simulate, forecast, compare -->
+    <message>
+        <source>Simulate / Scenarios...</source>
+        <translation>Simuleren / Scenario&apos;s...</translation>
+    </message>
+    <message>
+        <source>Forecast / Predictions...</source>
+        <translation>Voorspellen / Ensembles...</translation>
+    </message>
+    <message>
+        <source>Compare Models</source>
+        <translation>Modellen vergelijken</translation>
+    </message>
+    <message>
+        <source>Compare Models ({0})</source>
+        <translation>Modellen vergelijken ({0})</translation>
+    </message>
+    <message>
+        <source>Simulate / Scenarios: {0}</source>
+        <translation>Simuleren / Scenario&apos;s: {0}</translation>
+    </message>
+    <message>
+        <source>Forecast / Predictions: {0}</source>
+        <translation>Voorspellen / Ensembles: {0}</translation>
+    </message>
+    <message>
+        <source>Use Common Period</source>
+        <translation>Gemeenschappelijke periode gebruiken</translation>
+    </message>
+    <message>
+        <source>Normalize Contributions</source>
+        <translation>Bijdragen normaliseren</translation>
+    </message>
+    <message>
+        <source>Show Noise (if available)</source>
+        <translation>Ruis tonen (indien beschikbaar)</translation>
+    </message>
+    <message>
+        <source>Show Difference vs Reference</source>
+        <translation>Verschil t.o.v. referentie tonen</translation>
+    </message>
+    <message>
+        <source>Show Block Response</source>
+        <translation>Blokrespons tonen</translation>
+    </message>
+    <message>
+        <source>Show Std Error in Parameters</source>
+        <translation>Standaardfout bij parameters tonen</translation>
+    </message>
+    <message>
+        <source>Reference:</source>
+        <translation>Referentie:</translation>
+    </message>
+    <message>
+        <source>Export Tables (CSV)</source>
+        <translation>Tabellen exporteren (CSV)</translation>
+    </message>
+    <message>
+        <source>Open in Matplotlib</source>
+        <translation>Openen in Matplotlib</translation>
+    </message>
+    <message>
+        <source>Overview</source>
+        <translation>Overzicht</translation>
+    </message>
+    <message>
+        <source>Metrics &amp; Parameters</source>
+        <translation>Statistieken &amp; Parameters</translation>
+    </message>
+    <message>
+        <source>Diagnostics Comparison</source>
+        <translation>Diagnostiek vergelijken</translation>
+    </message>
+    <message>
+        <source>Simulation Period &amp; Settings</source>
+        <translation>Simulatieperiode &amp; instellingen</translation>
+    </message>
+    <message>
+        <source>Active Stressmodels</source>
+        <translation>Actieve stressmodellen</translation>
+    </message>
+    <message>
+        <source>Stress Overrides</source>
+        <translation>Stress-aanpassingen</translation>
+    </message>
+    <message>
+        <source>Scenarios</source>
+        <translation>Scenario&apos;s</translation>
+    </message>
+    <message>
+        <source>Run Scenario</source>
+        <translation>Scenario uitvoeren</translation>
+    </message>
+    <message>
+        <source>Show Difference vs Baseline</source>
+        <translation>Verschil t.o.v. basis tonen</translation>
+    </message>
+    <message>
+        <source>Save as Oseries</source>
+        <translation>Opslaan als meetreeks</translation>
+    </message>
+    <message>
+        <source>Forecast Horizon</source>
+        <translation>Voorspelhorizon</translation>
+    </message>
+    <message>
+        <source>Forecast Stress Inputs</source>
+        <translation>Stress-invoer voor voorspelling</translation>
+    </message>
+    <message>
+        <source>Historical Analogues (Climatology Ensemble)</source>
+        <translation>Historische analogen (klimatologie-ensemble)</translation>
+    </message>
+    <message>
+        <source>External Ensemble Files (CSV / Parquet / Excel)</source>
+        <translation>Externe ensemblebestanden (CSV / Parquet / Excel)</translation>
+    </message>
+    <message>
+        <source>Synthetic / Deterministic Stress</source>
+        <translation>Synthetische / deterministische stress</translation>
+    </message>
+    <message>
+        <source>Uncertainty &amp; Post-Processing</source>
+        <translation>Onzekerheid &amp; nabewerking</translation>
+    </message>
+    <message>
+        <source>Include Parameter Uncertainty</source>
+        <translation>Parameteronzekerheid meenemen</translation>
+    </message>
+    <message>
+        <source>AR1 Noise Post-Processing</source>
+        <translation>AR1 ruis-nabewerking</translation>
+    </message>
+    <message>
+        <source>Threshold Exceedance Probability</source>
+        <translation>Overschrijdingskans drempelwaarde</translation>
+    </message>
+    <message>
+        <source>Run Forecast</source>
+        <translation>Voorspelling uitvoeren</translation>
+    </message>
+    <message>
+        <source>Forecast Plot</source>
+        <translation>Voorspellingsgrafiek</translation>
+    </message>
+    <message>
+        <source>Forecast Table</source>
+        <translation>Voorspellingstabel</translation>
     </message>
 
 </context>

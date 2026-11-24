@@ -59,8 +59,12 @@ class PastastoreMainDock(QDockWidget):
     edit_model_requested = pyqtSignal(str)  # model name
     results_requested = pyqtSignal(str)  # model name
     diagnostics_requested = pyqtSignal(str)  # model name
+    simulate_model_requested = pyqtSignal(str)  # model name
+    forecast_model_requested = pyqtSignal(str)  # model name
+    compare_models_requested = pyqtSignal(list)  # model names (2+)
     mpl_results_requested = pyqtSignal(str)  # model name (matplotlib)
     mpl_diagnostics_requested = pyqtSignal(str)  # model name (matplotlib)
+    mpl_compare_models_requested = pyqtSignal(list)  # model names (matplotlib)
     add_model_column_requested = pyqtSignal(str)  # stat name to compute
     map_plot_requested = pyqtSignal(str, str, bool)  # var_key, ramp_name, invert
     select_models_for_oseries_requested = pyqtSignal(list)  # oseries names
@@ -978,6 +982,24 @@ class PastastoreMainDock(QDockWidget):
             )
             menu.addAction(diagnostics_action)
 
+            menu.addSeparator()
+
+            simulate_action = QAction(_tr("Simulate / Scenarios..."), self)
+            simulate_action.setIcon(QgsApplication.getThemeIcon("/mActionRun.svg"))
+            simulate_action.triggered.connect(
+                lambda: self.simulate_model_requested.emit(names[0])
+            )
+            menu.addAction(simulate_action)
+
+            forecast_action = QAction(_tr("Forecast / Predictions..."), self)
+            forecast_action.setIcon(QgsApplication.getThemeIcon("/mActionRun.svg"))
+            forecast_action.triggered.connect(
+                lambda: self.forecast_model_requested.emit(names[0])
+            )
+            menu.addAction(forecast_action)
+
+            menu.addSeparator()
+
             mpl_menu = QMenu("Matplotlib", self)
             mpl_results_action = QAction(_tr("Show Results"), self)
             mpl_results_action.triggered.connect(
@@ -991,6 +1013,23 @@ class PastastoreMainDock(QDockWidget):
             )
             mpl_menu.addAction(mpl_diag_action)
             menu.addMenu(mpl_menu)
+        elif len(names) >= 2:
+            compare_action = QAction(_tr("Compare Models"), self)
+            compare_action.setIcon(QgsApplication.getThemeIcon("/mIconTable.svg"))
+            compare_action.triggered.connect(
+                lambda: self.compare_models_requested.emit(names)
+            )
+            menu.addAction(compare_action)
+
+            mpl_menu = QMenu("Matplotlib", self)
+            mpl_compare_action = QAction(_tr("Compare Models"), self)
+            mpl_compare_action.triggered.connect(
+                lambda: self.mpl_compare_models_requested.emit(names)
+            )
+            mpl_menu.addAction(mpl_compare_action)
+            menu.addMenu(mpl_menu)
+
+            menu.addSeparator()
 
         select_oseries_action = QAction(_tr("Select Oseries"), self)
         select_oseries_action.setIcon(QgsApplication.getThemeIcon("/mActionSelect.svg"))

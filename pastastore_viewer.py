@@ -65,7 +65,9 @@ except ImportError:
 
 from .bro_import_dialog import BROImportDialog
 from .bulk_models_dialog import BulkModelsDialog
+from .compare_models_dialog import CompareModelsDialog
 from .diagnostics_plot import DiagnosticsPlotDialog
+from .forecast_dialog import ModelForecastDialog
 from .knmi_import_dialog import KNMIImportDialog
 from .license_manager import FEATURE_PRO, FEATURE_PRONL, LicenseManager
 from .main_dock import PastastoreMainDock
@@ -74,6 +76,7 @@ from .oseries_editor import OseriesEditorDialog
 from .plot_dock import PastastorePlotDock
 from .results_plot import ResultsPlotDialog
 from .settings_dialog import PastastoreSettingsDialog
+from .simulation_dialog import ModelSimulationDialog
 
 try:
     from .i18n_helper import tr as _i18n_tr
@@ -346,9 +349,19 @@ class PastastoreViewer:
             self.dock_widget.edit_model_requested.connect(self.open_model_editor)
             self.dock_widget.results_requested.connect(self.open_results_plot)
             self.dock_widget.diagnostics_requested.connect(self.open_diagnostics_plot)
+            self.dock_widget.simulate_model_requested.connect(
+                self.open_simulation_dialog
+            )
+            self.dock_widget.forecast_model_requested.connect(self.open_forecast_dialog)
+            self.dock_widget.compare_models_requested.connect(
+                self.open_compare_models_dialog
+            )
             self.dock_widget.mpl_results_requested.connect(self.open_mpl_results_plot)
             self.dock_widget.mpl_diagnostics_requested.connect(
                 self.open_mpl_diagnostics_plot
+            )
+            self.dock_widget.mpl_compare_models_requested.connect(
+                self.open_mpl_compare_models_plot
             )
             self.dock_widget.add_model_column_requested.connect(
                 self.compute_model_stat_column
@@ -1864,6 +1877,189 @@ class PastastoreViewer:
             )
             print(traceback.format_exc())
 
+    def open_simulation_dialog(self, model_name):
+        """Open the non-destructive scenario simulation dialog for a model (Pro)."""
+        if not self.store:
+            return
+        if not self._require_feature(FEATURE_PRO, "Pro"):
+            return
+        if not HAS_PASTAS:
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Error",
+                "pastas library not available. Bundle it in the plugin 'dependencies' folder or install it in the QGIS Python environment.",
+            )
+            return
+
+        try:
+            ml = self.store.get_models(model_name)
+            dlg = ModelSimulationDialog(ml, self.store, self.iface.mainWindow())
+            oseries_name = getattr(ml.oseries, "name", None)
+            dlg.save_series_requested.connect(
+                lambda name, ser, oname=oseries_name: self._save_simulated_series_as_oseries(
+                    name, ser, source_oseries=oname
+                )
+            )
+            dlg.show()
+
+            if not hasattr(self, "_simulation_dialogs"):
+                self._simulation_dialogs = []
+            self._simulation_dialogs.append(dlg)
+
+            dlg.finished.connect(
+                lambda: (
+                    self._simulation_dialogs.remove(dlg)
+                    if dlg in self._simulation_dialogs
+                    else None
+                )
+            )
+        except Exception as e:
+            import traceback
+
+            self._push_message(
+                "Error", f"Failed to open simulation dialog: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def _save_simulated_series_as_oseries(self, name, series, source_oseries=None):
+        """Save a simulated scenario series into the pastastore as an oseries."""
+        if not self.store:
+            return
+        try:
+            metadata = {}
+            if (
+                source_oseries
+                and hasattr(self.store, "oseries")
+                and source_oseries in self.store.oseries.index
+            ):
+                metadata = self.store.oseries.loc[source_oseries].to_dict()
+            self._add_oseries_to_store(series, name, metadata)
+            self.mark_store_modified(True)
+            if self.dock_widget:
+                self.dock_widget.populate_lists(self.store)
+            self.load_layers_from_store()
+            self._push_message(
+                "Success",
+                f"Saved simulated series as oseries: {name}",
+                level=0,
+            )
+        except Exception as e:
+            import traceback
+
+            self._push_message(
+                "Error", f"Failed to save simulated series: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def open_forecast_dialog(self, model_name):
+        """Open the ensemble forecast / prediction dialog for a model (Pro)."""
+        if not self.store:
+            return
+        if not self._require_feature(FEATURE_PRO, "Pro"):
+            return
+        if not HAS_PASTAS:
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Error",
+                "pastas library not available. Bundle it in the plugin 'dependencies' folder or install it in the QGIS Python environment.",
+            )
+            return
+
+        try:
+            ml = self.store.get_models(model_name)
+            dlg = ModelForecastDialog(ml, self.store, self.iface.mainWindow())
+            dlg.show()
+
+            if not hasattr(self, "_forecast_dialogs"):
+                self._forecast_dialogs = []
+            self._forecast_dialogs.append(dlg)
+
+            dlg.finished.connect(
+                lambda: (
+                    self._forecast_dialogs.remove(dlg)
+                    if dlg in self._forecast_dialogs
+                    else None
+                )
+            )
+        except Exception as e:
+            import traceback
+
+            self._push_message(
+                "Error", f"Failed to open forecast dialog: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def open_compare_models_dialog(self, model_names):
+        """Open the interactive model comparison dialog for 2+ models (Pro)."""
+        if not self.store:
+            return
+        if not self._require_feature(FEATURE_PRO, "Pro"):
+            return
+        if not HAS_PASTAS:
+            QMessageBox.critical(
+                self.iface.mainWindow(),
+                "Error",
+                "pastas library not available. Bundle it in the plugin 'dependencies' folder or install it in the QGIS Python environment.",
+            )
+            return
+        if not model_names or len(model_names) < 2:
+            self._push_message(
+                "Compare Models",
+                "Select at least two models to compare.",
+                level=1,
+            )
+            return
+
+        try:
+            models = [self.store.get_models(m) for m in model_names]
+            dlg = CompareModelsDialog(
+                models, names=list(model_names), parent=self.iface.mainWindow()
+            )
+            dlg.show()
+
+            if not hasattr(self, "_compare_dialogs"):
+                self._compare_dialogs = []
+            self._compare_dialogs.append(dlg)
+
+            dlg.finished.connect(
+                lambda: (
+                    self._compare_dialogs.remove(dlg)
+                    if dlg in self._compare_dialogs
+                    else None
+                )
+            )
+        except Exception as e:
+            import traceback
+
+            self._push_message(
+                "Error", f"Failed to compare models: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
+    def open_mpl_compare_models_plot(self, model_names):
+        """Show Pastas' native Matplotlib CompareModels plot for 2+ models (Pro)."""
+        if not self.store:
+            return
+        if not self._require_feature(FEATURE_PRO, "Pro"):
+            return
+        if not model_names or len(model_names) < 2:
+            return
+
+        try:
+            import matplotlib.pyplot as plt
+
+            models = [self.store.get_models(m) for m in model_names]
+            mc = ps.CompareModels(models, names=list(model_names))
+            mc.plot()
+            plt.show()
+        except Exception as e:
+            import traceback
+
+            self._push_message(
+                "Error", f"Failed to show matplotlib comparison: {str(e)}", level=2
+            )
+            print(traceback.format_exc())
+
     def compute_model_stat_column(self, stat):
         """Compute a statistic for all models and populate the column in the dock."""
         if not self.store:
@@ -2485,13 +2681,19 @@ class PastastoreViewer:
                     "Success", f"Updated oseries: {oseries_name}", level=0
                 )
 
-                # Refresh dock table & plot if this oseries is currently selected
+                # Refresh dock table & preserve selection (and refresh plot)
                 if self.dock_widget:
-                    self.dock_widget.populate_lists(self.store)
+                    selected_oseries = self.dock_widget.get_selected_names(
+                        "oseries"
+                    ) or [oseries_name]
                     current_tab = self.dock_widget.tabs.currentIndex()
-                    if current_tab == 0:  # Oseries tab
-                        # Re-trigger selection to refresh plot
-                        self.dock_widget._on_selection_changed("oseries")
+                    self.dock_widget.populate_lists(self.store)
+                    self.dock_widget.select_items_in_list(
+                        "oseries",
+                        selected_oseries,
+                        switch_tab=False,
+                        trigger_signal=(current_tab == 0),
+                    )
 
         except Exception as e:
             import traceback
@@ -2545,12 +2747,19 @@ class PastastoreViewer:
 
                 self._push_message("Success", f"Updated stress: {stress_name}", level=0)
 
-                # Refresh dock table & plot if stresses tab is active
+                # Refresh dock table & preserve selection (and refresh plot)
                 if self.dock_widget:
-                    self.dock_widget.populate_lists(self.store)
+                    selected_stresses = self.dock_widget.get_selected_names(
+                        "stresses"
+                    ) or [stress_name]
                     current_tab = self.dock_widget.tabs.currentIndex()
-                    if current_tab == 1:  # Stresses tab
-                        self.dock_widget._on_selection_changed("stresses")
+                    self.dock_widget.populate_lists(self.store)
+                    self.dock_widget.select_items_in_list(
+                        "stresses",
+                        selected_stresses,
+                        switch_tab=False,
+                        trigger_signal=(current_tab == 1),
+                    )
 
         except Exception as e:
             import traceback
