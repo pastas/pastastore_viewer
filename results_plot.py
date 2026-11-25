@@ -47,6 +47,9 @@ class ResultsPlotDialog(QDialog):
         self._row_plots = []
         self._params_proxy = None
         self._applied_height = None
+        self._time_xlim = None
+        self._main_ylims = []
+        self._side_xlims = []
 
         self.main_layout = QVBoxLayout()
         self.main_layout.setContentsMargins(5, 5, 5, 5)
@@ -83,7 +86,7 @@ class ResultsPlotDialog(QDialog):
 
         self.settings_btn.setMenu(self.settings_menu)
         self.toolbar_layout.addWidget(self.settings_btn)
-        self.plot_nav = PlotNavigationWidget(parent=self)
+        self.plot_nav = PlotNavigationWidget(on_full=self._reset_view_ranges, parent=self)
         self.toolbar_layout.addWidget(self.plot_nav)
         self.toolbar_layout.addStretch()
         self.main_layout.addLayout(self.toolbar_layout)
@@ -156,6 +159,22 @@ class ResultsPlotDialog(QDialog):
             self._params_proxy.setMaximumHeight(proxy_h)
 
         self._applied_height = available_height
+
+    def _reset_view_ranges(self):
+        """Restore tight x-limits and equal-scale y-limits across all subplots."""
+        if self._row_plots:
+            for row, ylim in zip(self._row_plots, self._main_ylims):
+                row[0].setYRange(ylim[0], ylim[1], padding=0)
+            if self._time_xlim is not None:
+                self._row_plots[0][0].setXRange(
+                    self._time_xlim[0], self._time_xlim[1], padding=0
+                )
+        for p_rf, xlim in self._side_xlims:
+            vb = p_rf.getViewBox()
+            vb.enableAutoRange(axis=vb.YAxis, enable=True)
+            vb.autoRange(padding=0.02)
+            if xlim is not None:
+                p_rf.setXRange(xlim[0], xlim[1], padding=0)
 
     def load_settings(self):
         proj = QgsProject.instance()
@@ -236,6 +255,9 @@ class ResultsPlotDialog(QDialog):
         self._row_plots = []
         self._params_proxy = None
         self._applied_height = None
+        self._time_xlim = None
+        self._main_ylims = []
+        self._side_xlims = []
         ml = self.ml
 
         Y_AXIS_WIDTH = self.y_axis_width
@@ -285,6 +307,8 @@ class ResultsPlotDialog(QDialog):
         DEFAULT_COLOR = "#1f77b4"  # Matplotlib C0
         main_col_plots = []
         side_plots = []
+        time_x_arrays = []
+        self._main_ylims = list(ylims)
 
         # Row 0: Obs & Sim
         p1 = self.win.addPlot(row=0, col=0, axisItems={"bottom": DateAxisItem()})
@@ -300,12 +324,14 @@ class ResultsPlotDialog(QDialog):
         self._row_plots.append([p1])
 
         ox, oy = self._prepare_data(obs)
-        if ox is not None:
+        if ox is not None and len(ox) > 0:
+            time_x_arrays.append(ox)
             p1.plot(
                 ox, oy, pen=None, symbol="o", symbolSize=3, symbolBrush="k", name="Obs"
             )
         sx, sy = self._prepare_data(sim)
-        if sx is not None:
+        if sx is not None and len(sx) > 0:
+            time_x_arrays.append(sx)
             p1.plot(sx, sy, pen=pg.mkPen(DEFAULT_COLOR, width=2), name="Sim")
 
         # Row 1: Residuals/Noise Plot
@@ -319,12 +345,14 @@ class ResultsPlotDialog(QDialog):
         self._row_plots.append([p2])
 
         rx, ry = self._prepare_data(res)
-        if rx is not None:
+        if rx is not None and len(rx) > 0:
+            time_x_arrays.append(rx)
             res_color = "k" if noise is not None else DEFAULT_COLOR
             p2.plot(rx, ry, pen=pg.mkPen(res_color, width=1), name="Residuals")
         if noise is not None:
             nx, ny = self._prepare_data(noise)
-            if nx is not None:
+            if nx is not None and len(nx) > 0:
+                time_x_arrays.append(nx)
                 p2.plot(nx, ny, pen=pg.mkPen(DEFAULT_COLOR, width=1), name="Noise")
 
         # Row 0-1, Col 1: Parameters Table
@@ -416,7 +444,8 @@ class ResultsPlotDialog(QDialog):
             main_col_plots.append(p_sm)
 
             cx, cy = self._prepare_data(contrib_series)
-            if cx is not None:
+            if cx is not None and len(cx) > 0:
+                time_x_arrays.append(cx)
                 p_sm.plot(cx, cy, pen=pg.mkPen(DEFAULT_COLOR, width=1.5))
 
             # Response plot (step or block)
@@ -434,6 +463,7 @@ class ResultsPlotDialog(QDialog):
             side_plots.append(p_rf)
             self._row_plots.append([p_sm, p_rf])
 
+            side_xlim = None
             if response_data is not None and len(response_data) > 0:
                 x_resp = (
                     response_x
@@ -451,9 +481,20 @@ class ResultsPlotDialog(QDialog):
                         if np.any(mask):
                             log_x_min = float(np.log10(np.nanmin(x_arr[mask])))
                             log_x_max = float(np.log10(np.nanmax(x_arr[mask])))
+                            side_xlim = (log_x_min, log_x_max)
                             p_rf.setXRange(log_x_min, log_x_max, padding=0)
                     else:
+                        side_xlim = (x_min, x_max)
                         p_rf.setXRange(x_min, x_max, padding=0)
+            self._side_xlims.append((p_rf, side_xlim))
+
+        # Tight x-limits around the plotted time-series data across all linked time graphs
+        if time_x_arrays:
+            t_min = min(float(np.nanmin(arr)) for arr in time_x_arrays)
+            t_max = max(float(np.nanmax(arr)) for arr in time_x_arrays)
+            if np.isfinite(t_min) and np.isfinite(t_max) and t_min < t_max:
+                self._time_xlim = (t_min, t_max)
+                p1.setXRange(t_min, t_max, padding=0)
 
         self.win.ci.layout.setColumnStretchFactor(0, 3)
         self.win.ci.layout.setColumnStretchFactor(1, 1)
